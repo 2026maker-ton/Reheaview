@@ -1,5 +1,7 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID } from '../crypto.js';
+import { buildBlindContext } from '../../domain/pii.js';
+import { detectBlindRisk, maskRisk } from '../../domain/answer-review.js';
 
 
 export function createFeedbackHandlers(d) {
@@ -52,5 +54,18 @@ export function createFeedbackHandlers(d) {
     return { status: 200, body: a };
   }
 
-  return { addRevision, createAppeal, getAppeal };
+  // 오류 신고(설계서 §16.5): 유형을 고르고, 본문의 개인정보·블라인드 표현은 저장 전에 가린다. 신고 내용을 모델 학습에 쓰지 않는다.
+  const ISSUE_TYPES = ['question', 'source', 'fact', 'privacy', 'inappropriate', 'stt', 'evaluation'];
+  function createIssueReport(owner, body) {
+    if (!ISSUE_TYPES.includes(body.type)) return err('validation_error', '신고 유형이 올바르지 않습니다.', 422);
+    if (body.session_id && !store.getSession(owner, body.session_id)) return err('not_found', '세션을 찾을 수 없습니다.', 404);
+    // 위험 표현을 먼저 가린다(가족 호칭이 다른 규칙에 먼저 바뀌면 직업 표현을 못 찾는다). 이어서 이름·학교 등 개인정보 후보를 가린다.
+    const text = String(body.comment || '').slice(0, 500);
+    const comment = buildBlindContext(maskRisk(text, detectBlindRisk(text).spans));
+    const id = randomUUID();
+    store.appeals.set(id, { id, owner_id: owner, kind: 'issue', type: body.type, session_id: body.session_id || null, comment, status: 'received', resolution_code: null, created_at: now(), resolved_at: null, used_for_training: false });
+    return { status: 201, body: { appeal_id: id, state: 'received', comment_preview: comment, note: '신고 내용은 개인정보를 가린 뒤 저장했고 모델 학습에 쓰지 않습니다.' } };
+  }
+
+  return { addRevision, createAppeal, getAppeal, createIssueReport };
 }

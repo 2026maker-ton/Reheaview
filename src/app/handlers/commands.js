@@ -1,6 +1,7 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID, sha256Hex } from '../crypto.js';
 import { detectPii, buildBlindContext } from '../../domain/pii.js';
+import { detectBlindRisk, maskRisk, answerComment } from '../../domain/answer-review.js';
 import { linkAnswersToInstitution } from '../../domain/institution.js';
 import { followupForRole, ROLES } from '../../domain/roles.js';
 import { canSessionTransition } from '../../domain/state.js';
@@ -15,6 +16,11 @@ import { validateDialogueOutput, validateFollowupOutput } from '../../providers/
 import { buildLlmEvaluation } from '../../domain/llm-eval.js';
 import { checkFeedbackSafety } from '../../domain/evaluation.js';
 import { SPOKEN, ruleFollowup, ruleTurnScore, validTurnScore, competencyFit } from '../../domain/interview-format.js';
+import { blindGate, blindEvent, blindMessage, FILTER_VERSION } from '../../domain/blind-gate.js';
+import { buildAxes } from '../../domain/axes.js';
+import { ruleComments, validComments } from '../../domain/report-comment.js';
+import { COMMENT_PROMPT_VERSION } from '../../providers/prompts/comment.js';
+import { personaBlock, personaOutputOk, personaName } from '../../domain/personas.js';
 
 export function createCommandHandlers(d) {
   const { config, store, err, now, caller, mock, requestContext, checkRate, publicSession } = d;
@@ -137,6 +143,19 @@ export function createCommandHandlers(d) {
       let text = String(payload.text || '').trim();
       if (!text) return err('validation_error', '답변이 비어 있습니다.', 422);
       if ([...text].length > config.limits.maxAnswerChars) return err('validation_error', '답변은 4,000자 이하여야 합니다.', 422);
+      // 블라인드 사전 차단(설계서 §4.3): 일반 면접 답변은 AI로 가기 전에 프로그램이 먼저 검사한다. 걸리면 답변을 저장·전송하지 않고 같은 질문으로 다시 답하게 한다.
+      // 이벤트에는 원문 없이 분류·수준·조치만 남긴다. 필터가 실패해도(level 'error') 통과시키지 않는다(fail-closed).
+      if (s.format === 'general') {
+        const gate = blindGate(text);
+        if (gate.blocked) {
+          const ev = blindEvent({ gate, question_id: s.awaiting_followup ? `${s.questions[s.q_index]?.id}:followup` : s.questions[s.q_index]?.id, action: 'rejected_reanswer' });
+          const events = [...(s.blind_events || []), ev].slice(-50);
+          store.updateSession(s, { blind_events: events, blind_paused: true, question_started_at: now() });
+          store.pushEvent(s.id, 'blind.detected', { level: gate.level, codes: ev.codes });
+          return accept({ command_id: commandId, state: s.state, version: s.version, action: 'blind_blocked', level: gate.level, categories: gate.categories.map(({ id, label }) => ({ id, label })), message: blindMessage(gate), violations: events.filter((e) => e.level === 'high').length, ai_sent: false });
+        }
+        if (s.blind_paused) store.updateSession(s, { blind_paused: false });
+      }
       // 블라인드 모드: 저장·평가에 쓰이는 텍스트에서 학교·성별·출신 단서를 마스킹한다.
       // (완전 익명화 보장은 아니며, 원문은 저장하지 않는다.)
       if (s.blind) text = buildBlindContext(text);
@@ -413,10 +432,11 @@ export function createCommandHandlers(d) {
     } else {
       const res = await caller.call('dialogue.next', {
         ctx, mockAlias: 'rule-based', reserve: { key: `session:${s.id}`, amount: 0.005 },
-        invoke: (a) => (a.decideTurn ? a.decideTurn({ stageLabel: q.stage_label, question: askedText, answer: text, followupReason, schoolContext: schoolContextOf(s), allowFollowup: canFollow }) : Promise.reject(Object.assign(new Error('decideTurn unsupported'), { invalid: true }))),
-        mock: ruleNext, fallback: ruleNext,
+        invoke: (a) => (a.decideTurn ? a.decideTurn({ stageLabel: q.stage_label, question: askedText, answer: text, followupReason, schoolContext: schoolContextOf(s), allowFollowup: canFollow, persona: personaBlock(s.persona_ids || [], { stage: q.stage }) }) : Promise.reject(Object.assign(new Error('decideTurn unsupported'), { invalid: true }))),
+        // 실제 AI 호출이 실패하면 꼬리질문을 만들어내지 않고 다음 승인 질문으로 넘어간다(설계서 §6.2-6). AI가 꺼진 데모(Mock)에서만 규칙 꼬리질문을 쓴다.
+        mock: ruleNext, fallback: () => ({ action: 'next', turn_score: ruleTurnScore(text) }),
         // 꼬리질문 문장은 기존 대화 검증기(240자·물음표 1개·금칙어·새 숫자 금지)를 통과해야 한다. 점수가 형식에 안 맞으면 규칙 점수로 바꾼다.
-        validate: (o) => o?.action === 'next' || (o?.action === 'followup' && validateDialogueOutput(o, contextText) && (String(o.utterance).match(/[?？]/g) || []).length === 1),
+        validate: (o) => o?.action === 'next' || (o?.action === 'followup' && validateDialogueOutput(o, contextText) && personaOutputOk(o.utterance) && (String(o.utterance).match(/[?？]/g) || []).length === 1),
       });
       trace = res.trace; decision = res.value;
       if (['live', 'fallback'].includes(trace.mode)) s.llm_calls += 1; // 실제로 호출한 경우만 센다
@@ -450,7 +470,11 @@ export function createCommandHandlers(d) {
     return store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user').map((t) => {
       const q = s.questions.find((x) => x.id === t.question_id) || {};
       const revs = store.getRevisions(t.id); const rev = revs[revs.length - 1];
-      return { turn_id: t.id, question_id: q.id, stage: q.stage, stage_label: q.stage_label, is_followup: !!t.followup, question_text: t.asked_text || q.text, answer_text: rev?.normalized_text || '', revision: rev?.revision || 1, cut_off: !!t.cut_off, turn_score: t.turn_score || null, voice_metrics: t.voice_metrics || null, evidence: t.followup ? [] : (q.evidence || []) };
+      // 답변에 학교·가정 배경을 짐작하게 하는 표현이 있으면 결과에는 그 표현을 가려서 싣고(블라인드 원칙) 위험 종류만 알린다.
+      const rawAnswer = rev?.normalized_text || '';
+      const risk = detectBlindRisk(rawAnswer);
+      const answerText = risk.level === 'none' ? rawAnswer : maskRisk(rawAnswer, risk.spans);
+      return { turn_id: t.id, question_id: q.id, stage: q.stage, stage_label: q.stage_label, is_followup: !!t.followup, question_text: t.asked_text || q.text, answer_text: answerText, comment: answerComment({ turn_score: t.turn_score, cut_off: !!t.cut_off, text: rawAnswer }), risk: { level: risk.level, categories: risk.categories.map(({ id, label }) => ({ id, label })) }, revision: rev?.revision || 1, cut_off: !!t.cut_off, turn_score: t.turn_score || null, voice_metrics: t.voice_metrics || null, evidence: t.followup ? [] : (q.evidence || []) };
     });
   }
 
@@ -498,15 +522,41 @@ export function createCommandHandlers(d) {
         if (!v.ok) throw new Error(v.errors.join('; '));
         return g;
       };
+      // 평가 분업(2026-11-01 사용자 결정: Sonnet 관찰 → Gemini 채점). 한쪽 실패 시 규칙 기반 폴백.
+      // 1단계 관찰(evaluation.observe, 기본 claude): level 없이 관찰문·인용 후보. 2단계 채점(evaluation.generate, 기본 gemini): 그 안에서 level만.
+      const evalCtx = requestContext(owner, { forceMock: !!s.highschool_mock && !allSynthetic, synthetic: allSynthetic });
+      const evalRub = getRubric(rubric_version);
+      const evalTurnsForModel = turnsWithText.map((t) => ({ turn_id: t.turn_id, text: t.text, elicited: t.elicited }));
+      const obsRes = await caller.call('evaluation.observe', {
+        ctx: evalCtx,
+        mockAlias: 'claude-observe',
+        reserve: { key: `session:${s.id}`, amount: config.budgets.evalReserve },
+        invoke: async (a2) => {
+          if (typeof a2.observeAnswers !== 'function') throw Object.assign(new Error('observe unsupported'), { code: 501, invalid: true });
+          const out = await a2.observeAnswers({ turns: evalTurnsForModel, rubric: evalRub });
+          return { observations: out.parsed, model: out.model, usage: out.usage };
+        },
+        mock: async () => null, fallback: async () => null,
+        validate: (o) => !!o?.observations && Array.isArray(o.observations.dimensions),
+      });
+      pushTrace(s, obsRes.trace);
+      if (['live', 'fallback'].includes(obsRes.trace.mode)) s.llm_calls += 1;
       // 평가 라우팅(evaluation.generate): 기본은 규칙 기반. 모델 평가가 켜져도 같은 검증을 통과한 출력만 쓴다.
+      const obsLive = obsRes.live && !!obsRes.value && Array.isArray(obsRes.value.observations?.dimensions);
       const evalRes = await caller.call('evaluation.generate', {
         // 평가 입력(모든 사용자 답변)이 전부 서버 fixture 샘플 답변일 때만 합성으로 본다.
-        ctx: requestContext(owner, { forceMock: !!s.highschool_mock && !allSynthetic, synthetic: allSynthetic }),
+        ctx: evalCtx,
         mockAlias: 'rule-based',
         reserve: { key: `session:${s.id}`, amount: config.budgets.evalReserve },
         // 모델 출력은 서버가 인용을 원문에서 재계산해 보고서로 만든 뒤 같은 검증기를 통과해야 한다(WP-E). 아니면 규칙 기반.
+        // 분업 채점: Sonnet 관찰 안에서만 level을 정한다. grade 미지원 어댑터(레거시 단일 호출)는 기존 evaluateAnswers로 호환.
         invoke: async (a2) => {
           const rub = getRubric(rubric_version);
+          if (obsLive && typeof a2.gradeObservations === 'function') {
+            const out = await a2.gradeObservations({ observations: obsRes.value.observations, rubric: rub });
+            const built = buildLlmEvaluation({ parsed: out.parsed, turnsWithText, rubric: rub, checkSafety: checkFeedbackSafety });
+            return { report: built, model: out.model, usage: out.usage };
+          }
           const out = await a2.evaluateAnswers({ turns: turnsWithText.map((t) => ({ turn_id: t.turn_id, text: t.text, elicited: t.elicited })), rubric: rub });
           const built = buildLlmEvaluation({ parsed: out.parsed, turnsWithText, rubric: rub, checkSafety: checkFeedbackSafety });
           return { report: built, model: out.model, usage: out.usage };
@@ -517,6 +567,7 @@ export function createCommandHandlers(d) {
       const generated = evalRes.live ? evalRes.value.report : evalRes.value;
       const evalTrace = evalRes.trace;
       pushTrace(s, evalTrace);
+      if (['live', 'fallback'].includes(evalTrace.mode)) s.llm_calls += 1;
       // 기관 연결: 공개 요구사항과 답변의 근거 연결 (평가 점수와 별도 레이어)
       let institution_link = { mode: 'general', note: '공고 연결 없이 일반 역량 기준으로만 분석합니다.', links: [], uncovered: [] };
       let institution_profile = null;
@@ -542,6 +593,42 @@ export function createCommandHandlers(d) {
           institution_requirement: u.requirement,
         });
       }
+      // 일반 면접: 질문·답변 기록, 역량 적합성, 6축을 먼저 만들고 면접관 말투 한줄평(report.comment)을 붙인다.
+      const buildGeneralPart = async () => {
+        // 일반 면접: 질문·답변 기록과 역량 적합성(키워드 일치 기반 참고 지표). 주장 연결·기관 연결 문장은 i 버튼·차트와 겹쳐 싣지 않는다.
+        const transcript = generalTranscript(s);
+        const ver = store.getVersion(s.profile_version_id);
+        const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score }));
+        const comps = ver?.plan?.general?.competencies || [];
+        const vProf = ver ? store.getProfile(owner, ver.profile_id) : null;
+        const vInst = vProf ? store.getInstitution(vProf.id)?.profile : null;
+        const events = s.blind_events || [];
+        const axes = buildAxes({ transcript, competencies: comps, institution: vInst });
+        const competency_fit = competencyFit(comps, fitTurns);
+        // 한줄평 입력은 블라인드 위험 표현을 가린 답변뿐이다. 게이트가 닫혀 있거나 실패·검증 불일치면 규칙 문구를 쓴다.
+        const ruleCmt = () => ruleComments({ fit: competency_fit, axes: axes.axes });
+        const cmtRes = await caller.call('report.comment', {
+          ctx: requestContext(owner, { forceMock: !!s.highschool_mock && !allSynthetic, synthetic: allSynthetic }),
+          mockAlias: 'rule-based',
+          reserve: { key: `session:${s.id}`, amount: config.budgets.commentReserve },
+          invoke: (a2) => a2.writeComments({
+            turns: transcript.map((t) => ({ question: t.question_text, answer: t.answer_text, followup: t.is_followup })),
+            competencies: comps.map((c) => String(c.label || '').trim()).filter(Boolean),
+            fit: competency_fit, axes: axes.axes,
+          }),
+          mock: ruleCmt, fallback: ruleCmt,
+          validate: validComments,
+        });
+        pushTrace(s, cmtRes.trace);
+        if (['live', 'fallback'].includes(cmtRes.trace.mode)) s.llm_calls += 1;
+        const cm = cmtRes.value;
+        const ai_comments = { fit_comment: String(cm.fit_comment).trim(), dimension_comment: String(cm.dimension_comment).trim(), provider: cmtRes.trace.mode === 'live' ? cmtRes.trace.provider : 'rule_based', live: cmtRes.live === true, validated: false, version: COMMENT_PROMPT_VERSION };
+        return { format: 'general', transcript, axes, ai_comments,
+          // 블라인드 안전 결과(설계서 §10.5-5): 민감 원문은 싣지 않고 종류·처리 결과만.
+          blind_safety: { filter_version: FILTER_VERSION, blocked_count: events.length, events: events.map((e) => ({ level: e.level, labels: e.labels, action: e.action, at: e.at })), masked_answers: transcript.filter((t) => t.risk?.level && t.risk.level !== 'none').length, note: '감지된 표현은 AI로 보내기 전에 막았고, 결과 화면에는 원문을 싣지 않습니다. 대학별 공식 규정이 확인되지 않아 Intervu의 보수적 기본 정책을 적용했습니다.' },
+          personas: { ids: s.persona_ids || [], names: (s.persona_ids || []).map(personaName), notice: '가상의 면접관 관점입니다. 실제 대학의 면접관·교수·입학사정관이 아니며 평가 기준·합격 여부와 무관합니다.' }, competency_fit, score_label: '면접관 실시간 참고 점수 · 검증 전', fit_label: '역량 키워드 일치 기반 참고 지표 · 검증 전' };
+      };
+      const generalPart = general ? await buildGeneralPart() : null;
       report = {
         ...generated,
         next_actions: next_actions.slice(0, 3),
@@ -550,18 +637,13 @@ export function createCommandHandlers(d) {
         generated_at: now(),
         // 평가기 종류·실제 공급자는 provider_trace와 같은 값이다(BUG-6). 규칙 기반 평가를 AI 평가처럼 표기하지 않는다.
         provider: evalTrace.provider,
-        evaluator: { kind: evalTrace.mode === 'live' ? 'llm' : 'rule_based', provider: evalTrace.provider, model_alias: evalTrace.model_alias, version: evalTrace.mode === 'live' ? 'eval-llm-v1' : 'rule-based-v1', ...(evalTrace.mode === 'live' ? { validated: false } : {}) },
+        evaluator: { kind: evalTrace.mode === 'live' ? 'llm' : 'rule_based', provider: evalTrace.provider, model_alias: evalTrace.model_alias, version: evalTrace.mode === 'live' ? 'eval-llm-v2' : 'rule-based-v1', ...(evalTrace.mode === 'live' ? { validated: false } : {}) },
         provider_trace: [...(s.provider_trace || [])],
+        session_id: s.id, attempt_no: s.attempt_no || 1, profile_version_id: s.profile_version_id || null,
         interviewer_role: s.interviewer_role || null,
         role_label: s.interviewer_role ? (ROLES[s.interviewer_role]?.label || null) : null,
         institution: institution_profile,
-        ...(general ? (() => {
-          // 일반 면접: 질문·답변 기록과 역량 적합성(키워드 일치 기반 참고 지표). 주장 연결·기관 연결 문장은 i 버튼·차트와 겹쳐 싣지 않는다.
-          const transcript = generalTranscript(s);
-          const ver = store.getVersion(s.profile_version_id);
-          const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score }));
-          return { format: 'general', transcript, competency_fit: competencyFit(ver?.plan?.general?.competencies || [], fitTurns), score_label: '면접관 실시간 참고 점수 · 검증 전', fit_label: '역량 키워드 일치 기반 참고 지표 · 검증 전' };
-        })() : { institution_link, claim_links: buildClaimLinks(s, turnsWithText) }),
+        ...(general ? generalPart : { institution_link, claim_links: buildClaimLinks(s, turnsWithText) }),
         model_version: (evalRes.live ? evalRes.value.model : generated.model_version) || 'mock-model-v1',
         interview_type: it,
         rubric_version,

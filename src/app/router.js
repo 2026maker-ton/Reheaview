@@ -42,17 +42,15 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
         }
         return json(405, err('method_not_allowed', '지원하지 않는 요청입니다.', 405).error);
       }
-      // AI 기능 스위치: 입장 잠금 뒤에서만 열리고, 켜고 끄려면 스위치 비밀번호가 필요하다(시도는 IP당 분당 5·일 30회).
+      // AI 기능 스위치: 입장 잠금 뒤에서만 열린다(비밀번호 없음, 남용을 막기 위해 IP당 분당 20·일 200회 제한).
       if (aiSwitch && p === '/api/v1/ai-switch' && !(gate?.enabled && !(await gate.verify(request)))) {
-        if (method === 'GET') return json(200, { on: !aiSwitch.off(), configured: aiSwitch.enabled });
+        if (method === 'GET') return json(200, { on: !aiSwitch.off() });
         if (method === 'POST') {
-          if (!aiSwitch.enabled) return json(503, err('switch_disabled', 'AI 스위치 비밀번호가 설정되지 않았습니다.', 503).error);
           const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
           const c = store.recordRate(`${ip}`, 'ai-switch');
-          if (c.minute > 5 || c.day > 30) return json(429, err('rate_limited', '시도가 너무 잦습니다. 잠시 후 다시 시도하세요.', 429).error);
+          if (c.minute > 20 || c.day > 200) return json(429, err('rate_limited', '요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429).error);
           const { json: b } = await readJsonBody(request);
           if (typeof b?.on !== 'boolean') return json(422, err('validation_error', 'on 값이 필요합니다.', 422).error);
-          if (!(await aiSwitch.verify(b?.password))) { await new Promise((r) => setTimeout(r, 300)); return json(401, err('switch_denied', '비밀번호가 올바르지 않습니다.', 401).error); }
           aiSwitch.set(!b.on);
           return json(200, { on: b.on });
         }
@@ -64,8 +62,10 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
       // 정적 UI는 어댑터 책임(Pages/Node). 라우터는 API만 다룬다.
       if (!p.startsWith('/api/')) return notFound();
       // 가입·로그인은 인증 전 경로다. 시도 제한 키에 쓰는 IP는 프록시 헤더(없으면 'local').
-      if (method === 'POST' && (p === '/api/v1/auth/signup' || p === '/api/v1/auth/login')) {
+      if (p === '/api/v1/auth/mode' && method === 'GET') return json(200, h.auth.mode());
+      if (method === 'POST' && (p === '/api/v1/auth/signup' || p === '/api/v1/auth/login' || p === '/api/v1/auth/guest')) {
         const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
+        if (p.endsWith('guest')) return send(await h.auth.guest(ip));
         const { json: b } = await readJsonBody(request);
         return send(await h.auth[p.endsWith('signup') ? 'signup' : 'login'](b, ip));
       }
@@ -75,6 +75,7 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
       if (p === '/api/v1/auth/me' && method === 'GET') return send(h.auth.getMe(owner));
       if (p === '/api/v1/auth/logout' && method === 'POST') return send(await h.auth.logout(bearer(request)));
 
+      if (p === '/api/v1/personas' && method === 'GET') return send(h.ops.personas());
       if (p === '/api/v1/metrics' && method === 'GET') return send(await h.ops.metrics(request));
       // Groq STT 연결 상태(키 노출 없음, 상태만 반환)
       if (p === '/api/v1/stt/status' && method === 'GET') return json(200, h.stt.sttStatus(owner, url.searchParams));
@@ -187,6 +188,7 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
       if ((mm = /^\/api\/v1\/turns\/([^/]+)\/revisions$/.exec(pth)) && mth === 'POST') return send(h.feedback.addRevision(owner, id1(), body));
       if ((mm = /^\/api\/v1\/evaluations\/([^/]+)\/appeals$/.exec(pth)) && mth === 'POST') return send(h.feedback.createAppeal(owner, id1(), body));
       if ((mm = /^\/api\/v1\/appeals\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.feedback.getAppeal(owner, id1()));
+      if (pth === '/api/v1/issue-reports' && mth === 'POST') return send(h.feedback.createIssueReport(owner, body));
       if (pth === '/api/v1/practice-attempts' && mth === 'POST') return send(h.transfer.createPractice(owner, body));
       // P4 전이 비교: baseline + retry 두 시도를 같은 루브릭으로 비교한다.
       if (pth === '/api/v1/transfer-comparisons' && mth === 'POST') return send(h.transfer.createTransferComparison(owner, body));

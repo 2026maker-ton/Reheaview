@@ -1,5 +1,5 @@
 // 면접실: 실제 면접처럼 질문과 면접관 말만 보인다(지원서 근거·단계·진행률 없음).
-// 음성: 질문을 읽은 뒤 자동 녹음 → 발화 후 3초 정적이면 구간 전사 → 종결어미로 끝났으면 완료, 아니면 계속 듣기.
+// 음성: 질문 낭독 후 자동 녹음. 연속 무발화 30초 전에는 정적으로 답변을 끝내지 않는다.
 // 질문별 제한시간(기본 60초)이 지나면 "네, 거기까지만…" 후 제출. 제출과 동시에 "네 답변 잘 들었습니다."
 import { $, setError, uuid } from '../core/format.js';
 import { FIXED } from '../core/copy.js';
@@ -10,7 +10,6 @@ import { go } from '../core/router.js';
 import { askConfirm } from '../core/dialog.js';
 import { loadReport } from './feedback.js';
 import { openMic, createCapture, calibrate } from '../core/vad.js';
-import { endsSentence } from '../core/sentence.js';
 
 let room = null; // { voice, seconds, timer, endAt, parts, capture, busy, done }
 let mic = null;
@@ -73,13 +72,13 @@ async function ask(text, line = '') {
 }
 
 async function beginAnswer() {
-  room.parts = []; room.busy = false; room.submitting = false;
+  room.parts = []; room.busy = false; room.submitting = false; room.timeExpired = false;
   showError('');
   startClock();
   if (room.voice) {
     try {
       mic ||= await openMic();
-      room.capture = createCapture(mic, { onSegment, onState: (st) => setListen(st, { listening: '듣고 있습니다', speaking: '말하는 중', processing: '정리 중' }[st] || '') });
+      room.capture = createCapture(mic, { onSegment, onNoSpeech: () => { if (room && !room.done && !room.submitting) submit(true); }, onState: (st) => setListen(st, { listening: '듣고 있습니다', speaking: '말하는 중', processing: '정리 중' }[st] || '') });
       room.capture.start();
       room.nudge = setTimeout(() => { if (room && !room.capture?.spoke) setListen('listening', '답변을 시작해 주세요'); }, 10_000);
       return;
@@ -102,7 +101,7 @@ async function transcribe(blob) {
   return String(data.text || '').trim();
 }
 
-// 3초 정적으로 끊긴 구간: 전사 → 종결어미로 끝났으면 답변 완료. 아니면(시간이 남았으면) 다시 듣는다.
+// 연속 무발화 30초로 끊긴 구간은 전사 뒤 제출한다. 문장 끝맺음과 무관하게 다음 질문으로 진행한다.
 async function onSegment(blob) {
   if (!room || room.submitting) return;
   room.busy = true;
@@ -112,8 +111,7 @@ async function onSegment(blob) {
     const joined = room.parts.join(' ');
     $('#liveTranscript').hidden = !joined; $('#liveTranscript').textContent = joined;
     if (room.submitting) return;
-    if (endsSentence(joined)) return submit(false);
-    if (Date.now() < room.endAt) room.capture.start();
+    return submit(room.timeExpired);
   } catch (err) {
     // 전사가 막히면 이 답변은 텍스트로 이어간다.
     room.voice = false;
@@ -126,6 +124,8 @@ async function onSegment(blob) {
 
 async function timeUp() {
   if (!room || room.submitting) return;
+  // 30초 정적 전사가 진행 중이면 그 결과를 받은 뒤 제출해 마지막 말을 잃지 않는다.
+  if (room.busy) { room.timeExpired = true; $('#interviewerLine').textContent = FIXED.cutoff; speak(FIXED.cutoff); return; }
   if (room.voice) {
     const tail = await room.capture.stop();
     const say = speak(FIXED.cutoff);
@@ -155,6 +155,13 @@ async function submit(cutOff) {
     const r = await api(`/sessions/${state.session.id}/commands`, { method: 'POST', idempotent: true, body: { command_id: uuid(), expected_version: state.session.version, type: 'turn.text', payload: { text, cut_off: cutOff, ...(voice_metrics ? { voice_metrics } : {}) } } });
     await said;
     if (r.version) state.session.version = r.version;
+    // 블라인드 사전 차단: 서버가 이 답변을 AI로 보내지 않았다. 안내를 보여 주고 같은 질문으로 다시 답하게 한다.
+    if (r.action === 'blind_blocked') {
+      try { speechSynthesis.cancel(); } catch { /* noop */ }
+      $('#interviewerLine').textContent = '';
+      await askConfirm('블라인드 안내', r.message, { okText: '다시 답하기' });
+      return beginAnswer();
+    }
     if (r.state === 'completed' || r.action === 'finish') return endInterview(r.closing || FIXED.closing);
     if (r.action === 'ask_followup') return ask(r.utterance, '');
     return ask(r.question?.text || r.utterance, r.bridge || '');

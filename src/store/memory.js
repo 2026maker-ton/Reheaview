@@ -201,7 +201,7 @@ export function createStore({ ttlDays = 30 } = {}) {
     getConsent(owner) { return consents.get(owner) || null; },
     // 계정(이메일 로그인). pass는 PBKDF2 해시·salt만 보관한다. 로그인 세션은 토큰 SHA-256 해시를 키로 둔다.
     createUser(data) {
-      const u = { id: `u-${randomUUID()}`, email: data.email, name: data.name, pass: data.pass, created_at: now() };
+      const u = { id: `u-${randomUUID()}`, email: data.email, name: data.name, pass: data.pass, ...(data.guest ? { guest: true } : {}), created_at: now() };
       users.set(u.id, u);
       return u;
     },

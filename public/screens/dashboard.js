@@ -7,6 +7,7 @@ import { refreshModeChip } from '../core/providers.js';
 import { loadReport } from './feedback.js';
 import { enterRoom } from './room.js';
 import { renderEvidence } from './evidence.js';
+import { renderDraftCard } from './draft.js';
 
 // ---- 공급자 상태(모드 칩)·음성 전사 상태 ----
 export async function loadProvider() {
@@ -22,6 +23,7 @@ const OPEN_STATES = ['ready', 'active', 'paused'];
 export async function loadRecent() {
   const box = $('#recentList');
   if (!box || !state.user) return;
+  renderDraftCard();
   const cont = $('#continueCard');
   cont.hidden = true;
   try {

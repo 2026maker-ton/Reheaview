@@ -6,10 +6,21 @@ import { go } from '../core/router.js';
 import { toast } from '../core/toast.js';
 import { askConfirm, askInput, dialog } from '../core/dialog.js';
 import { loadProvider } from './dashboard.js';
+import { clearDraft } from './draft.js';
 
 function showUser() {
   $('#userMenu').hidden = !state.user;
-  $('#userName').textContent = state.user?.name ? `${state.user.name}님` : '';
+  $('#userName').textContent = state.user?.name ? (state.user.guest ? state.user.name : `${state.user.name}님`) : '';
+  $('#guestLoginBtn').hidden = !state.user?.guest;
+  $('#guestWarning').hidden = !state.user?.guest || dismissedGuest === state.user.id;
+}
+let dismissedGuest = null;
+$('#dismissGuestWarning')?.addEventListener('click', () => { dismissedGuest = state.user?.id; showUser(); });
+$('#guestLoginBtn')?.addEventListener('click', () => signedOut(''));
+
+export async function startGuest() {
+  const r = await api('/auth/guest', { method: 'POST', body: {}, auth: false });
+  setToken(r.token); state.user = r.user; showUser();
 }
 
 // 저장된 토큰으로 사용자 확인. 실패하면 로그아웃 상태.
@@ -26,6 +37,7 @@ export function signedOut(message = '로그인이 만료됐습니다. 다시 로
   if (handling) return;
   handling = true;
   const wasIn = !!state.user;
+  clearDraft(state.user?.id);
   setToken(''); state.user = null; resetFlow(); showUser();
   go('login');
   if (wasIn && message) toast(message, true);
@@ -70,6 +82,14 @@ $('#signupForm')?.addEventListener('submit', (e) => {
   enter('/auth/signup', { name: f.get('name'), email: f.get('email'), password: f.get('password'), age_18_confirmed: true, notice_ack: true }, $('#signupBtn'));
 });
 
+// 자동 게스트 진입 실패·로그아웃 뒤에도 게스트 체험 버튼을 제공한다.
+async function loadAuthMode() {
+  try { $('#guestBox').hidden = !(await api('/auth/mode', { auth: false })).guest_allowed; } catch { $('#guestBox').hidden = true; }
+}
+window.addEventListener('hashchange', () => { if (location.hash === '#/login') loadAuthMode(); });
+if (location.hash === '#/login') loadAuthMode();
+$('#guestBtn')?.addEventListener('click', () => enter('/auth/guest', {}, $('#guestBtn')));
+
 $('#logoutBtn')?.addEventListener('click', async () => {
   try { await api('/auth/logout', { method: 'POST', idempotent: true, body: {} }); } catch { /* 토큰은 아래에서 지운다 */ }
   signedOut('');
@@ -84,7 +104,7 @@ $('#myDataBtn')?.addEventListener('click', async () => {
     try {
       const { sessions } = await api('/sessions');
       for (const s of sessions || []) if (!['deleted', 'deleting'].includes(s.state)) await api(`/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE', idempotent: true });
-      resetFlow(); toast('면접 기록을 삭제했습니다.'); go('dashboard');
+      resetFlow(); clearDraft(); toast('면접 기록을 삭제했습니다.'); go('dashboard');
     } catch (err) { toast(err.message, true); }
   }
   if (choice === 'account') {

@@ -38,7 +38,7 @@ test('E: valid Gemini report accepted, labelled llm/unvalidated, spans recompute
   await withProviders({ env: SYN, overrides: syn, respond: respondWith((c) => modelOutput(c)) }, async (ctx) => {
     const r = await runSession(ctx);
     assert.equal(r.evaluator.kind, 'llm');
-    assert.deepEqual({ ...r.evaluator, model_alias: undefined }, { kind: 'llm', provider: 'gemini', model_alias: undefined, version: 'eval-llm-v1', validated: false });
+    assert.deepEqual({ ...r.evaluator, model_alias: undefined }, { kind: 'llm', provider: 'gemini', model_alias: undefined, version: 'eval-llm-v2', validated: false });
     assert.equal(evalTrace(r).mode, 'live');
     const scored = r.dimensions.filter((d) => d.status === 'scored');
     assert.ok(scored.length >= 1, 'at least one scored dimension');

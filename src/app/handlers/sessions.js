@@ -1,5 +1,6 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID } from '../crypto.js';
+import { resolvePersonaIds, personaName } from '../../domain/personas.js';
 import { planGeneralQuestions, prependClaimQuestions } from '../../domain/plan.js';
 import { normalizeRole, ROLES } from '../../domain/roles.js';
 import { selectQuestions } from '../../domain/questions.js';
@@ -206,7 +207,11 @@ export function createSessionHandlers(d) {
       server_synthetic: p.synthetic === true, sample_fixture_id: p.synthetic === true ? p.fixture_id || null : null,
       policy_snapshot: { provider: dialoguePlan.provider, model: config.gemini.textModel, rubric: 'behavioral-ko-v1', format: 'general', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, question_basis: '일반 면접 5단계', institution_approved: true },
     });
-    store.updateSession(s, { format: 'general', answer_seconds: config.budgets.answerSeconds, coverage: { general_stages: questions.length }, question_basis: '일반 면접 5단계' });
+    // 같은 승인 계획으로 다시 본 면접의 회차(질문은 승인 때 동결된 계획 그대로이고, 꼬리질문·답변·결과만 새로 생긴다).
+    const attempt_no = store.listSessions(owner).filter((x) => x.profile_version_id === version.id && x.id !== s.id && !['deleted', 'deleting'].includes(x.state)).length + 1;
+    // 면접관 관점은 승인 때 계획에 동결된 것을 그대로 쓴다(다시 보기도 같다). 블라인드 감지 이벤트는 원문 없이 분류·조치만 쌓는다.
+    const persona_ids = version.persona_ids || version.plan?.personas?.ids || resolvePersonaIds().ids;
+    store.updateSession(s, { format: 'general', persona_ids, blind_events: [], attempt_no, answer_seconds: config.budgets.answerSeconds, coverage: { general_stages: questions.length }, question_basis: '일반 면접 5단계' });
     store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: questions.length, format: 'general' });
     return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type: 'general', interview_format: 'general', limits: { duration_seconds, answer_seconds: config.budgets.answerSeconds, question_count: questions.length, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: dialoguePlan.provider, provider_trace: [planTrace(dialoguePlan)], rubric_version: 'behavioral-ko-v1', question_basis: '일반 면접 5단계', sample_answers: sampleAnswersOf(s) } };
   }
@@ -223,7 +228,7 @@ export function createSessionHandlers(d) {
       id: s.id, state: s.state, version: s.version, mode: s.mode, task_type: s.task_type,
       interview_type: s.interview_type || s.mode || 'general',
       participant_layout: s.participant_layout || 'one_to_one',
-      persona: s.persona, blind: s.blind, free_test: !!s.free_test, interviewer_role: s.interviewer_role || 'practitioner',
+      persona: s.persona, persona_ids: s.persona_ids || null, persona_names: (s.persona_ids || []).map(personaName), blind: s.blind, free_test: !!s.free_test, interviewer_role: s.interviewer_role || 'practitioner',
       role_label: (ROLES[s.interviewer_role] || ROLES.practitioner).label,
       question_basis: s.question_basis || 'general-template-v1',
       rubric_version: s.policy_snapshot?.rubric || rubricForInterviewType(s.interview_type || s.mode || 'general'),

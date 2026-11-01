@@ -35,7 +35,7 @@ export function rubricNote(t) {
 export const FIXED = {
   evaluator: '규칙 기반 참고 관찰',
   evaluatorLlm: 'Gemini 분석 · 검증 전(참고용)',
-  mockMode: 'Mock 모드 · 외부 전송 없음',
+  mockMode: 'DEMO / Mock · 외부 전송 없음',
   abstain: '판단 보류',
   synthetic: '합성 샘플',
   unconfirmedNoGuess: '확인되지 않은 정보는 추측하지 않습니다',

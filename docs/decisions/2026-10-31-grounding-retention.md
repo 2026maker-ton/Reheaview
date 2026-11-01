@@ -4,7 +4,7 @@
 - 검색 방식: `school.search` operation이 Gemini `tools:[{google_search:{}}]`로 검색한다.
 - 켜지는 조건 (모두 충족해야 함):
   - `GEMINI_GROUNDING_ACK=true`
-  - `GEMINI_FREE_ONLY=false`
+  - (2026-11-01 변경) `GEMINI_FREE_ONLY=false`는 더 이상 필요 없다. 무료 전용 모드는 다른 호출의 모델 제한이고, 검색은 GROUNDING_ACK만으로 열린다.
   - 기존 게이트(키, `LIVE_ACK`, 데이터 등급, 동의) 통과
 - 하나라도 빠지면 `blocked` 상태가 되고 호출은 0건이다.
 - 조용한 유료 전환은 하지 않는다.

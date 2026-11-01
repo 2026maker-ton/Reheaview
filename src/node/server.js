@@ -54,7 +54,7 @@ export function createApp(overrides = {}) {
   // 정적 페이지 CSP: connect-src는 'self' + API_BASE의 오리진(있을 때만)
   let apiOrigin = '';
   try { if (env.API_BASE) apiOrigin = new URL(env.API_BASE).origin; } catch { /* 잘못된 값은 무시 */ }
-  const csp = `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'${apiOrigin ? ' ' + apiOrigin : ''}`;
+  const csp = `default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; script-src 'self'; img-src 'self' data:; connect-src 'self'${apiOrigin ? ' ' + apiOrigin : ''}`;
   const server = http.createServer(async (req, res) => {
     try {
       const p = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;

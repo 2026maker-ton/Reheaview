@@ -6,6 +6,7 @@ import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { dialog } from '../core/dialog.js';
 import { Stepper, StateBadge, EvidenceQuote } from '../ui/index.js';
+import { InfoBtn } from '../ui/info.js';
 import { FIXED, STAGE_LABEL, reasonCopy } from '../core/copy.js';
 
 const GAP = { role: '본인 역할', result: '관찰된 결과', reason: '판단 기준', number: '수치·기록' };
@@ -13,7 +14,8 @@ const FORMATS = [['general', '일반 면접'], ['pressure', '압박 면접 (준�
 const WRENCH = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
 let ctx = { loading: true, busy: false, searching: false, detail: null, claims: null, plan: null };
 
-const section = (id, title, body, tools = '') => `<section class="ev-sec" id="ev-${id}"><div class="ev-head"><h3>${esc(title)}</h3>${tools}</div><div class="ev-body">${body}</div></section>`;
+const SECTION_INFO = { comp: 'evidence.comp', format: 'evidence.format', search: 'evidence.search', persona: 'evidence.persona', privacy: 'evidence.privacy' };
+const section = (id, title, body, tools = '') => `<section class="ev-sec" id="ev-${id}"><div class="ev-head"><h3>${esc(title)}${SECTION_INFO[id] ? InfoBtn(SECTION_INFO[id]) : ''}</h3>${tools}</div><div class="ev-body">${body}</div></section>`;
 const REFRESH = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
 // 같은 자료는 저장된 분석 결과를 재사용한다(비용 절감). 이 버튼은 저장본을 무시하고 다시 분석한다.
 const refreshBtn = (id, label) => `<button class="icon-btn" type="button" id="${id}" aria-label="${label}" title="${label}"${ctx.busy || ctx.searching ? ' disabled' : ''}>${REFRESH}</button>`;
@@ -38,6 +40,30 @@ function formatBody(inst) {
   return `<p><span class="val">연습 형태: 일반 면접</span> ${custom ? StateBadge('직접 선택', 'info') : ''}</p>${quotes ? `<ul class="claims">${quotes}</ul>` : ''}`;
 }
 
+// 면접관 관점(가상 역할): 고른 조합과 이유, 쓸 수 없는 관점은 이유와 함께 회색으로 보인다. 질문 설계·꼬리질문의 초점과 말투만 바꾸며 평가 기준·점수는 그대로다.
+const comboId = () => ctx.combo || ctx.personas?.default_combination || null;
+function personaBody() {
+  const pe = ctx.personas;
+  if (!pe) return '<p class="fine" role="status">불러오는 중…</p>';
+  const combo = pe.combinations.find((c) => c.id === comboId());
+  const byId = new Map(pe.personas.map((p) => [p.id, p]));
+  const chosen = (combo?.persona_ids || []).map((i) => byId.get(i)).filter(Boolean);
+  const off = pe.personas.filter((p) => !p.available);
+  return `<p><span class="val">${esc(combo?.label || '')}</span></p>
+    <ul class="plain">${chosen.map((p) => `<li><span class="tag">${esc(p.short_name)}</span> ${esc(p.role_summary)}</li>`).join('')}</ul>
+    ${off.map((p) => `<p class="meta persona-off">${esc(p.name)} — 사용 불가: ${esc(p.unavailable_reason)}</p>`).join('')}
+    <p class="fine">${esc(pe.notice)}</p>`;
+}
+
+// 개인정보·블라인드 사전 검사 결과: 지원서에서 AI로 보내기 전에 가린 표현의 종류만 알린다(원문은 싣지 않는다).
+function privacyBody() {
+  const pv = state.profile?.privacy;
+  if (!pv) return '<p class="meta">이 지원서의 검사 결과는 새로 분석할 때 표시됩니다.</p>';
+  return pv.masked?.length
+    ? `<p><strong>AI로 보내기 전에 가린 표현</strong>: ${pv.masked.map((m) => `<span class="tag">${esc(m.label)}</span>`).join(' ')}</p><p class="fine">원문은 저장하지 않았고, 질문 근거에는 가린 글만 쓰입니다.</p>`
+    : '<p>가릴 표현을 찾지 못했습니다. 면접 중 답변도 같은 검사를 거쳐, 걸리면 AI로 보내지 않고 다시 답하게 합니다.</p>';
+}
+
 // 검색 결과는 약관상 수정 없이 그대로 보여 준다. 방금 검색한 결과만 출처 링크·추천 검색어와 함께, 지난 기록은 텍스트만(링크는 저장하지 않음).
 function searchBody(inst) {
   const fresh = ctx.lastSearch;
@@ -57,10 +83,15 @@ function paint() {
   if (!detail) return;
   const ex = detail.current_version?.extracted || {};
   const inst = detail.institution || null;
-  $('#evidenceBody').innerHTML = `${Stepper(['지원 정보', '근거 확인', '면접 준비'], 1)}
+  $('#evStepper').innerHTML = Stepper(['지원 정보', '근거 확인', '면접 준비'], 1);
+  $('#evidenceBody').innerHTML = `
     <div class="ev-grid">
       ${section('comp', '핵심 역량·인재상', competencies(inst), `${refreshBtn('reanalyzeBtn', '다시 분석')}${wrench('editCompBtn')}`)}
       ${section('format', '면접 형태', formatBody(inst), wrench('editFormatBtn'))}
+    </div>
+    <div class="ev-grid">
+      ${section('persona', '면접관 관점', personaBody(), wrench('editPersonaBtn'))}
+      ${section('privacy', '개인정보·블라인드 검사', privacyBody())}
     </div>
     ${section('search', '학교·전형', `<p class="val">${esc([detail.school_name || detail.target_name, detail.department || detail.role, detail.track].filter(Boolean).join(' · '))}</p>${searchBody(inst)}`)}
     ${ctx.needsReapproval ? '<p class="missing" role="status">내용이 바뀌어 다시 승인해야 합니다.</p>' : ''}`;
@@ -71,7 +102,8 @@ function paint() {
 
 const optional = (path) => api(path).catch(() => null);
 async function refresh(id) {
-  const [detail, cl, plan] = await Promise.all([api(`/profiles/${id}`), optional(`/profiles/${id}/claims`), optional(`/profiles/${id}/plan`)]);
+  const [detail, cl, plan, personas] = await Promise.all([api(`/profiles/${id}`), optional(`/profiles/${id}/claims`), optional(`/profiles/${id}/plan`), ctx.personas || optional('/personas')]);
+  ctx.personas = personas;
   ctx.detail = detail; ctx.claims = Array.isArray(cl?.claims) ? cl.claims : null; ctx.plan = plan;
   ctx.needsReapproval = ctx.needsReapproval || !!cl?.needs_reapproval;
   state.sources = detail.sources || [];
@@ -79,7 +111,7 @@ async function refresh(id) {
 }
 
 export async function renderEvidence(detail, created, { autoAnalyze = false } = {}) {
-  ctx = { busy: false, loading: true, searching: false, showDetail: false, detail, claims: null, plan: null, needsReapproval: false };
+  ctx = { busy: false, loading: true, searching: false, showDetail: false, detail, claims: null, plan: null, needsReapproval: false, personas: null, combo: null };
   $('#evidenceState').textContent = '확인 필요';
   $('#evidenceState').className = 'state-badge warn';
   paint();
@@ -105,6 +137,15 @@ async function editFormat() {
   const v = await dialog({ title: '면접 형태 선택', label: '면접 형태', choices: FORMATS, value: ctx.detail?.institution?.custom_interview_format || 'general', okText: '저장' });
   if (v === null) return;
   await saveCustom({ interview_format: v });
+}
+async function editPersona() {
+  const pe = ctx.personas;
+  if (!pe) return;
+  const v = await dialog({ title: '면접관 관점 선택', message: '질문의 초점과 말투만 달라집니다. 점수 기준은 같습니다.', label: '관점', choices: [...pe.combinations.map((c) => [c.id, c.selectable ? c.label : `${c.label} (사용 불가)`, !c.selectable])], value: comboId(), okText: '저장' });
+  if (v === null) return;
+  ctx.combo = v;
+  ctx.needsReapproval = true; state.approved = false; // 관점이 바뀌면 질문 계획을 다시 확정해야 한다
+  paint();
 }
 async function saveCustom(body) {
   try {
@@ -134,6 +175,7 @@ $('#evidenceBody')?.addEventListener('click', (e) => {
   if (e.target.closest('#editCompBtn, #compAddBtn')) editCompetencies();
   else if (e.target.closest('#reanalyzeBtn') && !ctx.busy) reanalyze();
   else if (e.target.closest('#editFormatBtn')) editFormat();
+  else if (e.target.closest('#editPersonaBtn')) editPersona();
   else if (e.target.closest('#schoolSearchBtn') && !ctx.searching) runSearch();
 });
 
@@ -143,8 +185,9 @@ $('#approveBtn')?.addEventListener('click', async () => {
   btn.disabled = true;
   setError('#evidenceError', '');
   try {
-    await api(`/profiles/${state.profile.id}/approve`, { method: 'POST', idempotent: true, body: { version_id: state.versionId } });
+    const ap = await api(`/profiles/${state.profile.id}/approve`, { method: 'POST', idempotent: true, body: { version_id: state.versionId, persona_combination: comboId() || undefined } });
     state.approved = true;
+    state.personaNames = ap.personas?.names || [];
     $('#evidenceState').textContent = '승인 완료';
     $('#evidenceState').className = 'state-badge ok';
     go('setup');

@@ -5,12 +5,16 @@ import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { enterRoom } from './room.js';
 import { openMic } from '../core/vad.js';
+import { Stepper } from '../ui/index.js';
+
+$('#setupStepper').innerHTML = Stepper(['지원 정보', '근거 확인', '면접 준비'], 2);
 
 export function updateSetupSummary() {
   const el = $('#setupSummary');
   if (!el || !state.profile) return;
   const p = state.profile;
-  el.innerHTML = `<strong>${esc(p.school_name || p.target_name || '')} · ${esc(p.department || p.role || '')}</strong>${p.track ? ` <span class="meta">${esc(p.track)}</span>` : ''}<p class="meta">일반 면접 · 본질문 5개 · 답변당 1분</p>`;
+  const names = state.personaNames?.length ? ` · 면접관 관점: ${esc(state.personaNames.join(' · '))}` : '';
+  el.innerHTML = `<strong>${esc(p.school_name || p.target_name || '')} · ${esc(p.department || p.role || '')}</strong>${p.track ? ` <span class="meta">${esc(p.track)}</span>` : ''}<p class="meta">일반 면접 · 본질문 5개 · 답변당 1분${names}</p>`;
 }
 
 // 음성은 서버 전사(Groq)를 쓸 수 있을 때만 고를 수 있다. 막히면 텍스트로 시작하고 이유를 보인다.
@@ -64,11 +68,13 @@ $('#micTestBtn')?.addEventListener('click', async () => {
 $('#setupForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.approved) return setError('#setupError', '근거를 승인해야 시작할 수 있습니다.');
+  if (!$('#blindAck').checked) return setError('#setupError', '시작 전 확인 항목에 체크해 주세요.');
   const btn = $('#startBtn');
   setError('#setupError', '');
   btn.disabled = true;
   try {
     const input_mode = new FormData(e.target).get('input_mode') || 'text';
+    state.lastInputMode = input_mode; // 결과 화면의 "다시 면접 보기"가 같은 방식으로 시작한다
     const s = await api('/sessions', { method: 'POST', idempotent: true, body: { profile_version_id: state.versionId, interview_format: 'general', input_mode } });
     state.session = { id: s.id, version: s.version, state: 'ready' };
     const started = await api(`/sessions/${s.id}/commands`, { method: 'POST', idempotent: true, body: { command_id: uuid(), expected_version: s.version, type: 'session.start', payload: {} } });

@@ -24,7 +24,6 @@ export function loadConfig(env = process.env) {
       // gemini-3.5-flash-lite가 무료 tier + 최저가($0.30/$2.50)로 확인됨.
       textModel: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite',
       fallbackModel: env.GEMINI_FALLBACK_MODEL || 'gemini-3.6-flash',
-      transcribeModel: env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.5-transcribe',
       timeoutMs: num('GEMINI_TIMEOUT_MS', 12000),
       // 생각 수준(비우면 모델 기본값). 예: minimal·low. [UNVERIFIED] 모델별로 허용 값이 다르니 실호출로 확인한 뒤에만 설정한다.
       thinkingLevel: env.GEMINI_THINKING_LEVEL || '',
@@ -40,7 +39,7 @@ export function loadConfig(env = process.env) {
       searchRetentionDays: num('SEARCH_RETENTION_DAYS', 150),
     },
     claude: {
-      timeoutMs: num('CLAUDE_TIMEOUT_MS', 20000),
+      timeoutMs: num('CLAUDE_TIMEOUT_MS', 30000),
       writerModel: env.CLAUDE_WRITER_MODEL || '', // 질문 문장 작성용 가벼운 모델(Haiku). 비우면 2단계 설계를 쓰지 않는다
       monthlyCapUsd: num('CLAUDE_MONTHLY_CAP_USD', 0), // 0 = 미설정. 공급자별 상한은 아직 미강제(전역 월 예산만 적용)
       apiVersion: env.CLAUDE_API_VERSION || '',
@@ -63,6 +62,8 @@ export function loadConfig(env = process.env) {
       'dialogue.next': { provider: route('DIALOGUE_NEXT', String(env.LLM_DIALOGUE_PROVIDER || 'gemini').toLowerCase()), alias: 'dialogue-text', maxOutputTokens: 500 },
       'claims.extract': { provider: route('CLAIMS_EXTRACT', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
       'school.analyze': { provider: route('SCHOOL_ANALYZE', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-school', maxOutputTokens: 1500 },
+      // 평가 분업(2026-11-01): 관찰은 Sonnet(evaluation.observe), 채점은 Gemini Flash Lite(evaluation.generate). 한쪽 실패 시 규칙 기반 폴백.
+      'evaluation.observe': { provider: route('EVALUATION_OBSERVE', 'claude'), alias: 'claude-observe', maxOutputTokens: 2500 },
       // 평가: Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 폴백(고입 실입력은 게이트에서 항상 규칙 기반)
       'evaluation.generate': { provider: route('EVALUATION_GENERATE', String(env.LLM_EVALUATION_PROVIDER || 'gemini').toLowerCase()), alias: 'gemini-eval', maxOutputTokens: 2500 },
       // 학생 MVP(09 §4·§5.1): 트렌드 조회 필요 판단·질문 설계. 기본 gemini(게이트·합성/동의 규칙은 공통), ROUTE_*로 mock 전환.
@@ -72,6 +73,8 @@ export function loadConfig(env = process.env) {
       'questions.write': { provider: route('QUESTIONS_WRITE', 'claude'), alias: 'claude-writer', maxOutputTokens: 1500 },
       // 학교·전형 검색(grounding, GEMINI_GROUNDING_ACK 필요). 답변 완료는 브라우저가 종결어미로 판단한다(AI 호출 없음).
       'school.search': { provider: route('SCHOOL_SEARCH', 'gemini'), alias: 'gemini-search', maxOutputTokens: 1200 },
+      // 보고서 한줄평(면접관 말투 2문장): Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 문구.
+      'report.comment': { provider: route('REPORT_COMMENT', 'gemini'), alias: 'gemini-comment', maxOutputTokens: 400 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
       'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', String(env.TTS_PROVIDER || 'mock').toLowerCase()), alias: 'tts', maxOutputTokens: 0 },
     },
@@ -158,6 +161,7 @@ export function loadConfig(env = process.env) {
       sessionHardCap: num('SESSION_HARD_CAP_USD', 0.08),
       evalReserve: num('EVAL_RESERVE_USD', 0.02),
       finishReserve: num('FINISH_RESERVE_USD', 0.005),
+      commentReserve: num('COMMENT_RESERVE_USD', 0.005),
       monthlyApiBudget: num('MONTHLY_API_BUDGET_USD', 30),
       // 일반 면접 5단계: 본질문 5 + 꼬리질문 답변 최대 3 → 꼬리질문 결정 8 + 평가 1. 여유 포함 기본 14.
       maxLlmCallsPerSession: num('SESSION_MAX_LLM_CALLS', 14),
@@ -200,8 +204,6 @@ export function loadConfig(env = process.env) {
     // ADMIN_TOKEN 미설정이면 관리 기능은 꺼진다(공개본 조회는 영향 없음).
     adminToken: String(env.ADMIN_TOKEN || ''),
     // 사이트 입장 비밀번호(데모 잠금, src/app/gate.js). 비우면 잠금 없음. GATE_SECRET은 쿠키 서명용 임의 문자열(없으면 비밀번호만으로 서명).
-    // AI 기능 스위치(화면 상단): 켜고 끄려면 이 비밀번호가 필요하다. 비우면 스위치를 쓸 수 없다(503).
-    aiSwitchPassword: String(env.AI_SWITCH_PASSWORD || ''),
     sitePassword: String(env.SITE_PASSWORD || ''), gateSecret: String(env.GATE_SECRET || ''),
     // 합성 샘플 API(WP-C6). 기본 켬, DEMO_FIXTURES=off로 끔.
     demoFixtures: String(env.DEMO_FIXTURES ?? 'on').toLowerCase() !== 'off',

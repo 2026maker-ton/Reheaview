@@ -5,6 +5,7 @@ import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { renderEvidence } from './evidence.js';
 import { Stepper } from '../ui/index.js';
+import { DRAFT_FIELDS, readDraft, saveDraft, clearDraft } from './draft.js';
 
 $('#appStepper').innerHTML = Stepper(['지원 정보', '근거 확인', '면접 준비'], 0);
 
@@ -25,6 +26,30 @@ async function fillFixtureList() {
 window.addEventListener('hashchange', () => { if (location.hash === '#/application') fillFixtureList(); });
 if (location.hash === '#/application') fillFixtureList();
 
+// ---- 파일 올리기(txt·pdf·docx): 서버가 글자만 뽑아 주면 자기소개서·학생부 칸 뒤에 붙인다(원본은 저장하지 않는다) ----
+const MAX_FILE = 5 * 1024 * 1024;
+let uploadKind = null;
+document.querySelectorAll('[data-upload]').forEach((b) => b.addEventListener('click', () => { uploadKind = b.dataset.upload; $('#fileInput').value = ''; $('#fileInput').click(); }));
+$('#fileInput')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const status = $('#uploadStatus');
+  setError('#applicationError', '');
+  if (file.size > MAX_FILE) { status.textContent = ''; return setError('#applicationError', '파일은 5MB 이하만 올릴 수 있습니다.'); }
+  status.textContent = `${file.name} 읽는 중…`;
+  try {
+    const content_base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(new Error('파일을 읽지 못했습니다.')); r.readAsDataURL(file); });
+    const out = await api('/documents/extract', { method: 'POST', idempotent: true, body: { filename: file.name, mime_type: file.type, content_base64 } });
+    const area = $('#applicationText');
+    area.value = [area.value.trim(), out.text.trim()].filter(Boolean).join('\n\n');
+    if (fixture) setFixture(null);
+    status.textContent = `${uploadKind === 'resume' ? '학생부' : '자기소개서'} 파일 "${file.name}"에서 ${out.char_count}자를 가져왔습니다.${out.truncated ? ' (너무 길어 일부만 가져왔습니다)' : ''}${out.warnings?.length ? ' ' + out.warnings.join(' ') : ''}`;
+  } catch (err) {
+    status.textContent = '';
+    setError('#applicationError', err.message);
+  }
+});
+
 $('#loadFixtureBtn')?.addEventListener('click', async () => {
   setError('#applicationError', '');
   await fillFixtureList();
@@ -40,6 +65,7 @@ $('#loadFixtureBtn')?.addEventListener('click', async () => {
     form.source_text.value = f.posting_text;
     form.application_text.value = f.application_text;
     setFixture(f);
+    if (f.posting_text) $('#postingDetails').open = true;
   } catch (e) {
     setError('#applicationError', e.message);
   }
@@ -68,12 +94,14 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
     state.versionId = created.version_id;
     state.approved = false;
     state.appKey = key;
+    clearDraft(); // 작성 중이던 내용은 서버 프로필로 넘어갔다
     const detail = await api(`/profiles/${created.id}`);
     state.profile = { ...created, ...detail };
     state.sources = detail.sources || [];
     renderEvidence(detail, created, { autoAnalyze: true });
     go('evidence');
     if (created.pii_warnings?.length) toast(`개인정보 후보(${created.pii_warnings.join(', ')})를 가렸습니다.`);
+    else if (created.privacy?.masked?.length) toast(`AI로 보내기 전에 ${created.privacy.masked.map((m) => m.label).join('·')} 표현을 가렸습니다.`);
   } catch (err) {
     setError('#applicationError', err.message);
     $('#applicationError')?.setAttribute('tabindex', '-1');
@@ -82,3 +110,27 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
     btn.disabled = false;
   }
 });
+
+// ---- 임시저장: 버튼으로 저장, 화면을 나가거나 새로고침하면 자동 저장, 비어 있는 폼에 다시 오면 불러온다 ----
+const formValues = () => Object.fromEntries(DRAFT_FIELDS.map((k) => [k, val(k)]));
+const formEmpty = () => !DRAFT_FIELDS.some((k) => val(k).trim());
+function restoreDraft() {
+  const d = readDraft();
+  if (!d || !formEmpty()) return;
+  const form = $('#applicationForm');
+  for (const k of DRAFT_FIELDS) form[k].value = d.values[k] || '';
+  if (d.values.source_text) $('#postingDetails').open = true;
+  toast('임시저장한 내용을 불러왔습니다.');
+}
+$('#draftSaveBtn')?.addEventListener('click', () => {
+  if (saveDraft(formValues())) toast('임시저장했습니다. 나갔다가 돌아와도 이어서 쓸 수 있어요.');
+  else setError('#applicationError', '저장할 내용이 없습니다.');
+});
+let lastHash = location.hash;
+window.addEventListener('hashchange', () => {
+  if (lastHash === '#/application' && location.hash !== '#/application' && state.user) saveDraft(formValues());
+  lastHash = location.hash;
+  if (location.hash === '#/application' && state.user) restoreDraft();
+});
+window.addEventListener('beforeunload', () => { if (location.hash === '#/application' && state.user) saveDraft(formValues()); });
+if (location.hash === '#/application') setTimeout(() => { if (state.user) restoreDraft(); }, 0);

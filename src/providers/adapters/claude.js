@@ -3,7 +3,7 @@
 import { buildClaimsPrompt } from '../prompts/claims.js';
 import { buildSchoolPrompt } from '../prompts/school.js';
 import { buildStageMessages } from '../prompts/interview.js';
-import { buildEvaluationMessages } from '../prompts/evaluation.js';
+import { buildEvaluationMessages, buildObserveMessages } from '../prompts/evaluation.js';
 import { buildSkeletonMessages, buildWriteMessages } from '../prompts/skeleton.js';
 
 export function createClaudeAdapter({ apiKey, baseUrl, model, writerModel = '', timeoutMs = 20000, apiVersion = '', thinking = 'off', fetchFn = (...a) => globalThis.fetch(...a) }) {
@@ -65,6 +65,11 @@ export function createClaudeAdapter({ apiKey, baseUrl, model, writerModel = '', 
       return { stages: parsed.stages.slice(0, 8), model: writerModel, usage };
     },
     // 최종 평가 초안: 인용 위치 재계산·검증은 서버(llm-eval.js)가 한다.
+    // 분업(2026-11-01): Sonnet은 관찰문·인용 후보만 남긴다(level 없음). 채점은 Gemini가 맡는다.
+    async observeAnswers({ turns, rubric }) {
+      const { parsed, usage } = await json(buildObserveMessages({ turns, rubric }), 2500, (p) => Array.isArray(p?.dimensions));
+      return { parsed, model, usage };
+    },
     async evaluateAnswers({ turns, rubric }) {
       const { parsed, usage } = await json(buildEvaluationMessages({ turns, rubric }), 2500, (p) => Array.isArray(p?.dimensions));
       return { parsed, model, usage };

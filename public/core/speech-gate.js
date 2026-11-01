@@ -31,7 +31,7 @@ export function createSpeechGate(threshold = FLOOR_RMS) {
 
 // 한 답변의 음량 그래프와 구간(결과 화면용, 순수 함수). rms·voice는 프레임별 값(목소리 확정 여부 1/0).
 // 반환: envelope(최대 120칸, 그 답변의 최대 음량 대비 0~100), segments(실제 답변 구간 speech / 600ms 이상 정적 pause, 초 단위).
-// 첫 발화 전 대기와 마지막 발화 뒤 3초 정적은 답변 시간에 넣지 않는다.
+// 첫 발화 전 대기와 마지막 발화 뒤 정적은 답변 시간에 넣지 않는다.
 export const PAUSE_MS = 600;
 export function voiceTimeline(rms, voice, frameMs = 50) {
   const n = rms.length;

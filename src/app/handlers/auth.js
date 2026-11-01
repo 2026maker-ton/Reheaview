@@ -1,6 +1,6 @@
 // 이메일+비밀번호 로그인(2026-10-31). 대상은 만 18세 이상: 가입 때 연령 확인·Groq 음성 전송 고지 동의를 함께 기록한다.
 // 비밀번호·해시·토큰 원문은 응답·로그에 넣지 않는다. 서버는 토큰의 SHA-256만 저장한다.
-import { hashPassword, verifyPassword, randomToken, sha256Hex } from '../crypto.js';
+import { hashPassword, verifyPassword, randomToken, sha256Hex, randomUUID } from '../crypto.js';
 
 export const SIGNUP_NOTICE_VERSION = 'signup-2026-10-31';
 const TOKEN_TTL_MS = 7 * 864e5;
@@ -8,7 +8,7 @@ const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 const BAD_LOGIN = '이메일 또는 비밀번호가 올바르지 않습니다.';
 
 export function createAuthHandlers(d) {
-  const { store, err, now } = d;
+  const { store, err, now, guestAllowed } = d;
   // 이메일+IP 단위 시도 제한(분당 5회·일 50회). 실패·성공 모두 센다.
   const limited = (email, ip) => {
     const c = store.recordRate(`${email}|${ip}`, 'auth');
@@ -19,7 +19,7 @@ export function createAuthHandlers(d) {
     store.putAuthSession(await sha256Hex(token), { owner, expires_at: Date.now() + TOKEN_TTL_MS, created_at: now() });
     return token;
   }
-  const me = (u) => ({ id: u.id, email: u.email, name: u.name });
+  const me = (u) => ({ id: u.id, email: u.guest ? null : u.email, name: u.name, ...(u.guest ? { guest: true } : {}) });
 
   async function signup(body, ip) {
     const email = String(body?.email || '').trim().toLowerCase();
@@ -60,5 +60,16 @@ export function createAuthHandlers(d) {
     return u ? { status: 200, body: me(u) } : { status: 200, body: { id: owner, email: null, name: null } };
   }
 
-  return { signup, login, logout, getMe };
+  // 가입 없이 게스트 체험(공급자 설정과 무관하게 Mock). 이메일·비밀번호 없는 임시 계정이며, 만 18세 확인 기록을 남기지 않아 외부 AI로는 나가지 않는다.
+  const mode = () => ({ guest_allowed: !!guestAllowed?.() });
+  async function guest(ip) {
+    if (!guestAllowed?.()) return err('guest_unavailable', '지금은 가입 없이 체험할 수 없습니다. 가입 후 이용해 주세요.', 403);
+    const rl = limited('guest', ip);
+    if (rl) return rl;
+    const u = store.createUser({ email: `guest-${randomUUID()}@guest.invalid`, name: '체험 사용자', pass: null, guest: true });
+    store.addConsent(u.id, { age_18_confirmed: false, guest: true, notice_version: 'guest' });
+    return { status: 201, body: { token: await issue(u.id), user: me(u) } };
+  }
+
+  return { signup, login, logout, getMe, mode, guest };
 }

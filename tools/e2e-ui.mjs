@@ -49,8 +49,9 @@ function check(ok, label, detail = '') {
 const ADMIN_TOKEN = `e2e-admin-${Date.now()}`;
 const TRENDS_FILE = path.join(OUT, `trends-${Date.now()}.json`);
 const ws = fs.mkdtempSync(path.join(OUT, 'profile-'));
+const schoolMemoryAnswer = "네, 제가 생명과학부에 지원하게 된 계기는 고등학교 때 '유전자 가위(CRISPR)' 기술을 주제로 발표를 준비했던 경험 덕분입니다";
 const answers = [
-  '팀 프로젝트에서 일정이 밀린 원인을 먼저 확인했습니다. 제가 직접 담당자별 진행 상황을 표로 정리해 공유했고, 그 결과 마감 전에 검토를 마쳤습니다.',
+  schoolMemoryAnswer,
   '갈등이 생겼을 때 저는 상대의 요구를 먼저 확인하고, 제가 양보할 수 있는 부분과 지킬 기준을 나눠 설명했습니다. 그 결과 역할을 다시 나눠 진행했습니다.',
   '아쉬웠던 점은 중간 점검을 미룬 것입니다. 다음에는 첫 주에 확인 기준을 정하고, 매주 금요일에 짧게 점검하는 절차를 만들었습니다.',
   '새로운 업무를 맡았을 때 먼저 선례와 데이터를 찾아보고, 이해관계자에게 확인한 뒤 실행 순서를 정했습니다. 시행 후에는 지표로 결과를 확인했습니다.',
@@ -153,7 +154,7 @@ async function main() {
   const app = createApp({
     env: {
       GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: '', DEV_TOKEN_B: '',
-      ADMIN_TOKEN, TRENDS_FILE, AI_SWITCH_PASSWORD: 'e2e-switch', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100',
+      ADMIN_TOKEN, TRENDS_FILE, PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100',
     },
   });
   await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
@@ -163,6 +164,14 @@ async function main() {
   const browser = await pw.chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' });
   const page = await context.newPage();
+  await page.route('**/api/v1/sessions/*/commands', (route) => {
+    const data = route.request().postDataJSON();
+    if (data?.type === 'turn.text') {
+      data.payload.voice_metrics = { speech_ratio: .7, longest_silence_seconds: 2, silence_count: 1, volume_cv: .2, pitch_jitter: .02, timeline: { total_seconds: 10, envelope: [0, 40, 80, 100, 30, 0], segments: [{ k: 'speech', s: 1, e: 7 }, { k: 'pause', s: 7, e: 9 }] } };
+      return route.continue({ postData: JSON.stringify(data) });
+    }
+    return route.continue();
+  });
   const consoleErrors = []; const pageErrors = []; const badResponses = [];
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -179,10 +188,13 @@ async function main() {
       await page.setViewportSize({ width: w, height: 900 });
       const o = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(o <= 1, `${label}: ${w}px 가로 오버플로 없음`, `+${o}px`);
+      // E2E_SHOTS=1이면 화면별 전체 캡처를 남긴다(레이아웃 점검용).
+      if (process.env.E2E_SHOTS && w !== 768) { fs.mkdirSync(path.join(OUT, 'shots'), { recursive: true }); await page.screenshot({ path: path.join(OUT, 'shots', `${label}-${w}.png`), fullPage: true }); }
     }
     await page.setViewportSize({ width: 1440, height: 900 });
   };
   const audit = async (label) => {
+    if (process.env.E2E_SHOTS) { fs.mkdirSync(path.join(OUT, 'shots'), { recursive: true }); await page.screenshot({ path: path.join(OUT, 'shots', `${label}-audit.png`), fullPage: true }); }
     const r = await page.evaluate(A11Y_AUDIT, { tap: false });
     check(!r.labels.length, `${label}: 입력 이름`, r.labels.join(', '));
     check(!r.buttons.length, `${label}: 버튼 이름`, r.buttons.join(', '));
@@ -194,7 +206,15 @@ async function main() {
   try {
     console.log('\n[1] 로그인·가입');
     await page.goto(base, { waitUntil: 'networkidle' });
-    check(page.url().endsWith('#/login'), '토큰 없으면 로그인 화면');
+    await page.waitForURL(/#\/dashboard/);
+    check(await page.locator('#guestWarning').isVisible(), '첫 방문 자동 게스트: 개인정보 경고 표시');
+    check((await page.locator('#guestWarning').innerText()).includes('모두 막지 못할 수'), '개인정보 누락 가능성 안내');
+    await page.click('#dismissGuestWarning');
+    check(await page.locator('#guestWarning').isHidden(), 'X로 게스트 경고 닫기');
+    await page.click('#guestLoginBtn');
+    await page.waitForURL(/#\/login/);
+    await page.waitForSelector('#guestBox:not([hidden])');
+    check(await page.locator('#guestBtn').isVisible(), 'Mock 모드: 가입 없이 체험하기 버튼');
     check(await page.locator('#screen-login').isVisible(), '로그인 화면 보임');
     await page.click('#tabSignup');
     await page.fill('#signupForm [name=name]', '이투이');
@@ -214,24 +234,14 @@ async function main() {
     check(screens.join(',') === 'login,dashboard,application,evidence,setup,room,feedback', '화면 7개(부가기능 없음)', screens.join(','));
     check(await page.locator('[data-journey]').count() === 1, '대입 여정 하나');
     check(!(await page.locator('text=자료 없이').count()), '자료 없이 일반 연습 없음');
-    // AI 스위치: 비밀번호가 맞아야 바뀐다
+    // AI 스위치(비밀번호 없음): 누르면 바로 바뀐다
     check(await page.locator('#aiSwitch').getAttribute('aria-checked') === 'true', 'AI 스위치 기본 켜짐');
     await page.click('#aiSwitch');
-    check(await page.locator('#confirmInput').getAttribute('type') === 'password', '스위치 비밀번호는 가려서 입력');
-    await page.fill('#confirmInput', 'wrong');
-    await page.click('#confirmOk');
-    await page.waitForTimeout(800);
-    check(await page.locator('#aiSwitch').getAttribute('aria-checked') === 'true', '틀린 비밀번호면 스위치가 바뀌지 않음');
-    await page.click('#aiSwitch');
-    await page.fill('#confirmInput', 'e2e-switch');
-    await page.click('#confirmOk');
     await page.waitForFunction(() => document.querySelector('#aiSwitch').getAttribute('aria-checked') === 'false');
-    check(true, '맞는 비밀번호로 AI 끔');
+    check(await page.locator('#confirmDialog[open]').count() === 0, '비밀번호 창 없이 AI 끔');
     await page.click('#aiSwitch');
-    await page.fill('#confirmInput', 'e2e-switch');
-    await page.click('#confirmOk');
     await page.waitForFunction(() => document.querySelector('#aiSwitch').getAttribute('aria-checked') === 'true');
-    check(true, '맞는 비밀번호로 AI 켬');
+    check(true, 'AI 켬');
     await page.click('#journeyUniversity');
 
     console.log('\n[3] 지원 정보');
@@ -239,8 +249,29 @@ async function main() {
     await page.waitForFunction(() => document.querySelectorAll('#fixtureSelect option').length >= 11);
     check(await page.locator('#fixtureSelect option').count() === 11, '샘플 10건');
     check(await page.locator('[name=experiences]').count() === 0 && !(await page.locator('text=경험 메모').count()), '경험 메모 입력 없음');
-    check(await page.locator('#screen-application .back-btn').count() === 1 && await page.locator('#applicationForm .sticky-actions .ghost').count() === 0, '지원 정보: 위쪽 뒤로가기, 아래에는 다음 버튼만');
-    check(!(await page.locator('#docFile').count()), '파일 업로드 숨김');
+    check(await page.locator('#screen-application .back-btn').count() === 1 && await page.locator('#applicationForm .sticky-actions .primary').count() === 1 && await page.locator('#applicationForm .sticky-actions .ghost').allInnerTexts().then((t) => t.join() === '임시저장'), '지원 정보: 위쪽 뒤로가기, 아래에는 다음(+임시저장) 버튼만');
+    check(await page.locator('[data-upload]').count() === 2 && await page.locator('#postingDetails').evaluate((d) => !d.open && !!d.querySelector('[name=source_text]')), '파일 올리기 버튼 2개, 모집요강·인재상은 닫힌 선택 기재 아코디언');
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-upload=cover_letter]')]);
+    await chooser.setFiles({ name: 'cover.txt', mimeType: 'text/plain', buffer: Buffer.from('저는 로봇 동아리에서 제어 알고리즘을 직접 설계했고 오차를 줄이기 위해 세 가지 방법을 비교했습니다.') });
+    await page.waitForFunction(() => document.querySelector('#uploadStatus').textContent.includes('가져왔습니다'), null, { timeout: 8000 });
+    check((await page.inputValue('#applicationText')).includes('로봇 동아리'), '파일에서 뽑은 글자가 자기소개서 칸에 들어감');
+    await page.click('#screen-application .info-btn');
+    check(await page.locator('.info-pop').isVisible() && (await page.locator('.info-pop').innerText()).length > 10, 'i 버튼 설명 말풍선');
+    await page.keyboard.press('Escape');
+    check(await page.locator('.info-pop').count() === 0, 'Esc로 말풍선 닫힘');
+    await page.fill('[name=school_name]', '임시대학교');
+    await page.fill('[name=department]', '임시학과');
+    await page.click('#draftSaveBtn');
+    check(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('intervu.draft.')).length === 1), '임시저장은 하나만');
+    await page.click('.brand');
+    await page.waitForURL(/#\/dashboard/);
+    await page.waitForSelector('#draftCard:not([hidden])');
+    check((await page.locator('#draftMeta').innerText()).includes('임시대학교'), '대시보드에 임시저장 카드');
+    await page.evaluate(() => document.querySelector('#applicationForm').reset());
+    await page.click('#draftResumeBtn');
+    await page.waitForURL(/#\/application/);
+    await page.waitForFunction(() => document.querySelector('[name=school_name]').value === '임시대학교');
+    check((await page.inputValue('[name=department]')) === '임시학과' && (await page.inputValue('#applicationText')).includes('로봇 동아리'), '임시저장 내용이 폼으로 복원됨');
     await page.selectOption('#fixtureSelect', 'smp-snu-bio');
     await page.click('#loadFixtureBtn');
     await page.waitForFunction(() => document.querySelector('[name=school_name]').value === '서울대학교');
@@ -255,6 +286,12 @@ async function main() {
     check(await page.locator('#screen-evidence .back-btn').count() === 1 && await page.locator('#evidenceCard > .actions .ghost').count() === 0, '뒤로가기는 위쪽 버튼 하나, 아래에는 다음(승인) 버튼만');
     check((await page.locator('#ev-search').innerText()).includes('서울대학교'), '학교·전형 정보 표시');
     check(await page.locator('#editCompBtn[aria-label="직접 수정"]').count() === 1 && await page.locator('#editFormatBtn').count() === 1, '렌치 버튼 2개');
+    await page.waitForFunction(() => document.querySelector('#ev-persona')?.innerText.includes('서류 검증'), null, { timeout: 8000 });
+    check((await page.locator('#ev-persona').innerText()).includes('전공 탐구') && (await page.locator('#ev-persona').innerText()).includes('교수 연구분야 특화형'), '면접관 관점: 기본 조합과 사용 불가 이유(교수 특화형)');
+    check((await page.locator('#ev-privacy').innerText()).length > 10, '개인정보·블라인드 검사 결과 표시');
+    await page.click('#editPersonaBtn');
+    check(await page.locator('#confirmChoice option[disabled]').count() === 1, '교수 연구분야 특화 조합은 선택 불가');
+    await page.click('#confirmCancel');
     // 뒤로 갔다가 수정 없이 다시 다음: 이미 분석한 결과를 그대로 쓴다(새 프로필·분석 요청 없음)
     let created = 0;
     const onReq = (r) => { if (r.method() === 'POST' && new RegExp('/api/v1/profiles(/[^/]+/school-analysis)?$').test(r.url())) created++; };
@@ -285,25 +322,43 @@ async function main() {
     await page.waitForURL(/#\/setup/);
     check(await page.locator('#setupForm input[value=groq]').isDisabled(), '서버 전사 없으면 음성 선택 불가');
     check(await page.locator('#setupForm input[value=text]').isChecked(), '텍스트로 시작');
+    check((await page.locator('#setupSummary').innerText()).includes('서류 검증'), '면접 준비에 선택한 면접관 관점 표시');
+    check(await page.locator('#blindCheck #blindAck').count() === 1, '시작 전 블라인드 체크리스트');
+    await page.click('#startBtn');
+    check((await page.locator('#setupError').innerText()).includes('체크'), '체크리스트 확인 전에는 시작 불가');
+    await page.check('#blindAck');
     await page.click('#startBtn');
 
     console.log('\n[6] 면접실');
     await page.waitForURL(/#\/room/);
     check(!(await page.locator('#roomHint, #sttRecBtn, #progressWrap').count()), '근거·녹음 버튼·진행률 없음');
-    let turns = 0;
-    while (page.url().includes('#/room') && turns < 12) {
-      await page.waitForFunction(() => !document.querySelector('#textAnswer').hidden || !location.hash.includes('room'), null, { timeout: 15000 });
-      if (!page.url().includes('#/room')) break;
-      if (turns === 0) {
-        check(/0[01]:[0-9]{2}/.test(await page.locator('#clock').innerText()), '답변 제한 1분 시계');
-        await audit('면접실');
-        await overflow('면접실');
+    // 블라인드 사전 차단: 가족 직업을 말하면 그 답변은 AI로 가지 않고, 안내 뒤 같은 질문으로 다시 답하게 한다.
+    await page.waitForFunction(() => !document.querySelector('#textAnswer').hidden, null, { timeout: 15000 });
+    const qBefore = await page.locator('#roomTitle').innerText();
+    await page.fill('#answerText', '저희 아버지가 대학 교수라서 연구실을 자주 갔습니다.');
+    await page.click('#answerBtn');
+    await page.waitForFunction(() => document.querySelector('#confirmDialog')?.open, null, { timeout: 10000 });
+    check((await page.locator('#confirmTitle').innerText()).includes('블라인드') && (await page.locator('#confirmMessage').innerText()).includes('AI로 전송되지 않았습니다'), '블라인드 안내 팝업');
+    await page.click('#confirmOk');
+    await page.waitForFunction(() => !document.querySelector('#textAnswer').hidden && document.querySelector('#answerText').value === '', null, { timeout: 10000 });
+    check((await page.locator('#roomTitle').innerText()) === qBefore, '같은 질문으로 다시 답하게 함');
+    const answerAll = async (first) => {
+      let turns = 0;
+      while (page.url().includes('#/room') && turns < 12) {
+        await page.waitForFunction(() => !document.querySelector('#textAnswer').hidden || !location.hash.includes('room'), null, { timeout: 15000 });
+        if (!page.url().includes('#/room')) break;
+        if (first && turns === 0) {
+          check(/0[01]:[0-9]{2}/.test(await page.locator('#clock').innerText()), '답변 제한 1분 시계');
+          await audit('면접실');
+          await overflow('면접실');
+        }
+        await page.fill('#answerText', answers[turns % answers.length]);
+        await page.click('#answerBtn');
+        turns += 1;
+        await page.waitForTimeout(300);
       }
-      await page.fill('#answerText', answers[turns % answers.length]);
-      await page.click('#answerBtn');
-      turns += 1;
-      await page.waitForTimeout(300);
-    }
+    };
+    await answerAll(true);
     const spoken = await page.evaluate(() => window.__spoken);
     check(spoken.some((t) => t.includes('지금부터 면접을 시작하겠습니다')), '시작 인사');
     check(spoken.includes('네 답변 잘 들었습니다.'), '답변 확인 문장');
@@ -314,16 +369,75 @@ async function main() {
     await page.waitForSelector('.qa');
     check(await page.locator('.report-charts svg').count() >= 2, '차트 SVG(점수·차원)');
     check(await page.locator('.report-charts .hbar').count() >= 1, '역량 적합성 막대');
+    check(await page.locator('figure.chart.wide svg .dot').count() === 6 && await page.locator('figure.chart.wide svg .dot.hold').count() >= 1, '6축 레이더: 미관찰 영역은 최저 수준 1의 빈 점(0점·판단 보류 아님)');
+    check(await page.locator('.chart.wide .ai-acc .axis-card tbody tr').count() === 6, '영역별 근거는 레이더 아코디언 내부');
+    check(await page.locator('.axis-card').isHidden(), '레이더 근거는 기본 접힘');
+    const voiceBox = await page.locator('.voice-chart').boundingBox();
+    const chartsBox = await page.locator('.report-charts').boundingBox();
+    check(Math.abs(voiceBox.width - chartsBox.width) < 2, '음성 구역 가로 전체 폭');
+    const probe = page.locator('.voice-chart .timeline-probe').first();
+    const box = await probe.boundingBox();
+    await probe.hover({ position: { x: box.width / 2, y: box.height / 2 } });
+    check(await probe.locator('.timeline-cursor').isVisible() && (await probe.locator('.timeline-cursor span').innerText()) === '5.0초', '음성 호버: 세로선과 경과 초');
+    await probe.focus(); await probe.press('End');
+    check(await probe.getAttribute('aria-valuenow') === '10', '음성 타임라인 키보드 탐색');
+    check(await page.locator('.report-overview .overview-metric').count() === 4, '오버뷰: 큰 수치 네 개');
+    check(!(await page.locator('#feedbackBody').innerText()).match(/이번 면접 요약|답변 차원별 관찰|서류와 답변 나란히 보기|분석의 한계/), '요청한 네 구역 제거');
+    check((await page.locator('#privacyResults').innerText()).includes('개인정보 유출 검사 결과') && (await page.locator('#privacyResults').innerText()).includes('1회'), '개인정보 검사 결과(차단 1회)');
+    check(await page.evaluate(() => !!(document.querySelector('#privacyResults').compareDocumentPosition(document.querySelector('.report-main')) & Node.DOCUMENT_POSITION_FOLLOWING)), '개인정보 검사가 질문·답변 위에 표시');
+    check(await page.locator('details.qa').count() >= 5 && await page.locator('details.qa[open]').count() === 0, '질문 아코디언은 모두 접힌 상태로 시작');
+    await page.locator('details.qa > summary').first().click();
+    check(await page.locator('.qa-a').first().isVisible(), '질문 펼치면 답변 표시');
+    const answerProbe = page.locator('.qa .timeline-probe').first();
+    const answerBox = await answerProbe.boundingBox();
+    await answerProbe.hover({ position: { x: answerBox.width / 2, y: answerBox.height / 2 } });
+    check((await answerProbe.locator('.timeline-cursor span').innerText()) === '5.0초', '펼친 답변의 음성 차트도 호버 시간 표시');
+    check((await page.locator('.qa-a').first().innerText()).includes(schoolMemoryAnswer), 'CRISPR 답변 원문 보존');
+    check(!(await page.locator('#feedbackBody').innerText()).includes('아버지'), '결과 어디에도 감지된 원문이 없다');
+    check(await page.locator('.persona-line .tag').count() === 2 && await page.locator('#issueBtn').count() === 1, '면접관 관점 표시, 오류 신고 버튼');
+    check((await page.locator('#feedbackBody').innerText()).includes('면접 태도·전달력 코칭'), '태도·전달력 코칭 오버뷰');
     await page.waitForFunction(() => !document.querySelector('#reportDetail')?.hidden, null, { timeout: 8000 });
     check(await page.locator('#reportDetail .claims li').count() >= 1 && await page.locator('#reportDetail .plan-list li').count() === 5, '세부 정보(지원서 근거·질문 5개)는 결과 맨 뒤');
-    check(await page.evaluate(() => { const d = document.querySelector('#reportDetail'); const last = document.querySelector('#feedbackBody').lastElementChild; return d === last; }), '세부 정보가 결과 화면의 마지막 요소');
+    check(await page.evaluate(() => { const d = document.querySelector('#reportDetail'); const last = document.querySelector('#feedbackBody').lastElementChild; return last.contains(document.querySelector('#retryBtn')) && d.nextElementSibling === last; }), '다시 면접 보기 버튼은 세부 정보 아래 마지막 구역');
     check(await page.locator('.qa:not(.followup)').count() === 5, '본질문 5개');
     const info = page.locator('.qa .icon-btn.info').first();
     await info.click();
     check(await info.getAttribute('aria-expanded') === 'true' && await page.locator('.qa-evidence:not([hidden])').count() === 1, 'i 버튼으로 근거 열림');
     check(!(await page.locator('text=재연습').count()), '재연습 없음');
+    check(await page.locator('.qa-comment').count() >= 5, '답변마다 코멘트');
+    check(await page.locator('#feedbackBody .info-btn.basis').count() >= 5 && await page.locator('#feedbackBody .info-btn:not(.basis)').count() >= 6, '박스마다 i(의미)·?(근거) 버튼');
+    check(await page.locator('.report-charts > .chart > .info-btn.basis').count() === 0, '차트 박스에는 ? 버튼 없음(하단 아코디언으로 이동)');
+    check(await page.locator('.report-charts details.ai-acc > summary', { hasText: 'AI의 생각이 궁금해요!' }).count() >= 2, '박스 하단 "AI의 생각이 궁금해요!" 아코디언');
+    const acc = page.locator('.report-charts details.ai-acc').first();
+    await acc.locator('summary').click();
+    const accText = await acc.innerText();
+    check(await acc.evaluate((e) => e.open) && accText.includes('규칙 기반 문구') && accText.includes('판단 근거'), '아코디언 펼침: 한줄평(Mock은 규칙 문구 표기)과 판단 근거');
+    const jump = page.locator('.report-charts .ai-jump');
+    check(await jump.count() === 1 && await page.locator('.report-charts .ai-jump').evaluate((e) => e.tagName === 'BUTTON'), '답변별 참고 점수: 열리지 않는 점프 버튼');
+    await jump.click();
+    await page.waitForTimeout(600);
+    check(await page.evaluate(() => document.activeElement?.id === 'qaTitle'), '점프 버튼: 질문과 답변으로 이동');
+    check(await page.locator('.report-charts figure.chart:has(.vol-list) .info-btn.basis').count() === 0, '음성 박스에 ? 버튼 없음');
+    check(await page.locator('.attempt-tabs').count() === 0, '1회만 봤으면 회차 탭 없음');
+    check(await page.locator('#retryBtn').count() === 1, '다시 면접 보기 버튼');
+    await page.click('#retryBtn');
+    await page.waitForURL(/#\/room/);
+    check(true, '다시 면접 보기: 근거 확인 없이 바로 면접실');
+    await answerAll(false);
+    await page.waitForURL(/#\/feedback/, { timeout: 20000 });
+    await page.waitForSelector('.attempt-tabs');
+    check(await page.locator('.attempt-tab').count() === 2 && (await page.locator('.attempt-tab[aria-selected=true]').innerText()).startsWith('2'), '2회차 탭 두 개, 지금 2회차');
+    const q2 = await page.locator('.qa-q').allInnerTexts();
+    await page.click('.attempt-tab:not([aria-selected=true])');
+    await page.waitForFunction(() => document.querySelector('.attempt-tab[aria-selected=true]').innerText.startsWith('1'));
+    const q1 = await page.locator('.qa-q').allInnerTexts();
+    check(q1[0] === q2[0] && q1.length >= 5, '회차가 달라도 본질문은 같은 승인 계획');
+    await page.locator('.chart.wide .ai-acc > summary').click();
     await audit('결과');
     await overflow('결과');
+    await page.setViewportSize({ width: 390, height: 900 });
+    check(await page.locator('.axis-card td:nth-child(4)').first().evaluate((e) => e.getBoundingClientRect().width > 240), '모바일 영역별 근거는 넓은 행으로 표시');
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     console.log('\n[8] 로그아웃');
     await page.click('#logoutBtn');
@@ -332,6 +446,7 @@ async function main() {
     check(await page.evaluate(() => !localStorage.getItem('intervu.token')), '토큰 삭제');
   } catch (e) {
     failures.push(`예외: ${e.message}`);
+    console.error(`E2E 예외: ${e.message}`);
     await page.screenshot({ path: path.join(OUT, 'failure.png'), fullPage: true }).catch(() => {});
   } finally {
     check(!pageErrors.length, '페이지 오류 없음', pageErrors.join(' | '));

@@ -47,7 +47,9 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   let aiOff = false;
   const killSet = new Set(killList);
   const isKilled = (p) => aiOff || killSet.has(p);
-  const aiSwitch = { off: () => aiOff, set: (v) => { aiOff = !!v; }, enabled: !!config.aiSwitchPassword, verify: (pw) => safeEqual(String(pw ?? '').slice(0, 200), config.aiSwitchPassword) };
+  const aiSwitch = { off: () => aiOff, set: (v) => { aiOff = !!v; } };
+  // 게스트는 항상 발급 가능하다. 공급자 키·동의·합성 fixture 여부와 무관하게 서버 컨텍스트에서 외부 AI를 막는다.
+  const guestAllowed = () => true;
   // 공급자 라우팅·게이트·호출 래퍼(WP-B1, 04 §1~3). 외부 전송 허용 여부는 서버 상태(ctx)로만 정한다.
   // 요청 본문의 synthetic/free_test 값은 어떤 경로에서도 전송 근거가 아니다.
   const registry = createRegistry(config);
@@ -61,7 +63,8 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   // consent/adult는 Store의 동의 기록(가입 시 만 18세 확인)에서만 온다.
   const requestContext = (owner, extra = {}) => {
     const consent = store.getConsent?.(owner) || null;
-    return { owner, synthetic: extra.forceRealData === true ? false : syntheticTraffic === true || extra.synthetic === true, forceMock: !!extra.forceMock, consent: !!consent, adult: !!(consent?.age_18_confirmed || consent?.age_19_confirmed) };
+    const guest = store.getUser?.(owner)?.guest === true;
+    return { owner, synthetic: extra.forceRealData === true ? false : syntheticTraffic === true || extra.synthetic === true, forceMock: guest || !!extra.forceMock, consent: !!consent, adult: !guest && !!(consent?.age_18_confirmed || consent?.age_19_confirmed) };
   };
   // 서버 기본 컨텍스트에서 실제로 외부 호출이 열려 있는 공급자(없으면 mock): 상태 표시·구 호환용.
   const providerName = ['dialogue.next', 'claims.extract'].map((op) => caller.plan(op, requestContext(null))).find((p) => p.live)?.provider || 'mock';
@@ -127,7 +130,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     if (c.minute > lim.perMinute || c.day > lim.perDay) return err('quota_exceeded', '요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { bucket, minute: c.minute, day: c.day, limit_minute: lim.perMinute, limit_day: lim.perDay } });
     return null;
   };
-  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, elevenlabs, isKilled, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate, officialFetch };
+  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, elevenlabs, isKilled, guestAllowed, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate, officialFetch };
   const sessions = createSessionHandlers(d);
   d.publicSession = sessions.publicSession;
   const admin = createAdminHandlers(d);

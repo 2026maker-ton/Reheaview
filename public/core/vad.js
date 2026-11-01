@@ -45,10 +45,10 @@ export async function calibrate(mic, ms = 400) {
 }
 
 // 한 답변 동안의 녹음 구간 관리. onSegment(blob): 발화 뒤 silenceMs 정적이 오면 구간을 끊어 넘긴다.
-export function createCapture(mic, { silenceMs = 3000, onSegment, onState = () => {} }) {
+export function createCapture(mic, { silenceMs = 30_000, onSegment, onNoSpeech = () => {}, onState = () => {} }) {
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
   let rec = null; let chunks = []; let timer = null;
-  let calibrating = mic.threshold ? null : []; let lastVoice = 0; // 임계값이 이미 있으면 바로 감지를 시작한다
+  let calibrating = mic.threshold ? null : []; let lastVoice = 0; let startedAt = 0;
   // 잡음(작은 소리·짧은 소리·주기성 없는 소리)은 말로 치지 않는다: 구간에 말이 확인되기 전에는 정적 컷도 전사 전송도 하지 않는다.
   let gate = createSpeechGate(mic.threshold || FLOOR_RMS);
   // 지표 누적
@@ -97,11 +97,15 @@ export function createCapture(mic, { silenceMs = 3000, onSegment, onState = () =
     } else if (gate.spoke) {
       m.curSilence += FRAME_MS;
       m.longestSilence = Math.max(m.longestSilence, m.curSilence);
-      if (now - lastVoice >= silenceMs) cut(); // 말이 확인된 구간만 3초 정적으로 끊어 보낸다
+      if (now - lastVoice >= silenceMs) cut();
+    } else if (now - startedAt >= silenceMs) {
+      clearInterval(timer); timer = null;
+      // 무발화 녹음은 전사하지 않고 폐기한다. 30초 대기 후에만 다음 질문으로 진행한다.
+      stopRecorder().then(() => onNoSpeech());
     }
   }
   return {
-    start() { gate.reset(); lastVoice = 0; m.curSilence = 0; startRecorder(); onState('listening'); timer = setInterval(tick, FRAME_MS); },
+    start() { gate.reset(); startedAt = performance.now(); lastVoice = startedAt; m.curSilence = 0; startRecorder(); onState('listening'); timer = setInterval(tick, FRAME_MS); },
     // 시간 초과·종료: 남은 구간을 바로 넘긴다.
     // 말이 확인되지 않은 구간(잡음·무음뿐)은 null을 돌려 전사로 보내지 않는다.
     async stop() { clearInterval(timer); timer = null; const blob = await stopRecorder(); return gate.spoke ? blob : null; },

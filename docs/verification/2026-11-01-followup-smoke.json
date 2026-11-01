@@ -1,0 +1,167 @@
+{
+  "date": "2026-11-01T09:59:23.308Z",
+  "synthetic_only": true,
+  "hard_cap": 10,
+  "actual_http_ai_requests": 8,
+  "requests": [
+    {
+      "number": 1,
+      "status": 200
+    },
+    {
+      "number": 2,
+      "status": 200
+    },
+    {
+      "number": 3,
+      "status": 200
+    },
+    {
+      "number": 4,
+      "status": 200
+    },
+    {
+      "number": 5,
+      "status": 200
+    },
+    {
+      "number": 6,
+      "status": 200
+    },
+    {
+      "number": 7,
+      "status": 200
+    },
+    {
+      "number": 8,
+      "status": 200
+    }
+  ],
+  "rows": [
+    {
+      "stage": "intro",
+      "answer": "생명과학 실험에서 조건에 따라 효소 반응이 달라지는 점이 궁금해 직접 탐구하고 싶습니다.",
+      "action": "next_question",
+      "followup": null,
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 1922
+        }
+      ]
+    },
+    {
+      "stage": "academic",
+      "answer": "전공 개념을 실험으로 확인했고 결과가 달랐습니다.",
+      "action": "ask_followup",
+      "followup": "실험 결과가 예상과 달랐을 때, 원인을 분석하기 위해 본인이 직접 취한 행동이나 추가로 찾아본 내용은 무엇인가요?",
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 1282
+        }
+      ]
+    },
+    {
+      "stage": "academic",
+      "followup_answer": true,
+      "action": "next_question",
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 1594
+        }
+      ]
+    },
+    {
+      "stage": "experience",
+      "answer": "팀에서 좋은 결과를 냈습니다.",
+      "action": "ask_followup",
+      "followup": "팀의 결과 외에, 온도 변화가 효소 반응에 미치는 영향을 탐구할 때 지원자 본인이 직접 수행한 구체적인 역할은 무엇이었나요?",
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 998
+        }
+      ]
+    },
+    {
+      "stage": "experience",
+      "followup_answer": true,
+      "action": "next_question",
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 1402
+        }
+      ]
+    },
+    {
+      "stage": "reflection",
+      "answer": "실패했지만 다음에는 더 잘하려고 합니다.",
+      "action": "ask_followup",
+      "followup": "후속 실험을 수행하지 못한 구체적인 원인과 함께, 만약 다시 실험을 진행한다면 온도 유지 장치는 구체적으로 어떻게 개선할 계획이신가요?",
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 1360
+        }
+      ]
+    },
+    {
+      "stage": "reflection",
+      "followup_answer": true,
+      "action": "next_question",
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 959
+        }
+      ]
+    },
+    {
+      "stage": "closing",
+      "answer": "입학 후 생명과학 개념을 배우고 실험으로 확인하고 싶습니다.",
+      "action": "finish",
+      "followup": null,
+      "trace": [
+        {
+          "operation": "dialogue.next",
+          "provider": "gemini",
+          "mode": "live",
+          "reason": null,
+          "model_alias": "dialogue-text",
+          "latency_ms": 984
+        }
+      ]
+    }
+  ]
+}

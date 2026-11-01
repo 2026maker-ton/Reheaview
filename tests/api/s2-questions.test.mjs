@@ -151,17 +151,17 @@ test('answer end: browser rule is the Korean sentence-final ending (다/요/죠/
   });
 });
 
-test('school.search (grounding): blocked without GROUNDING_ACK or with free-only; text stored without links/suggestions; never fed into questions', async () => {
+test('school.search (grounding): blocked without GROUNDING_ACK, opens with it even in free-only mode; text stored without links/suggestions; never fed into questions', async () => {
   const isSearch = (c) => JSON.stringify(c.body).includes('google_search');
   const grounded = () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '전형 확인: 확인 안 됨\n면접 유무: 있음\n면접 방식: 제시문 구술\n면접 분류: 기술\n평가 요소: 학업역량\n인재상: 수리탐구' }] }, groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.ac.kr/guide', title: '모집요강' } }], searchEntryPoint: { renderedContent: '<div>chips</div>' } } }], usageMetadata: {} }), { status: 200 });
-  await run({ GEMINI_GROUNDING_ACK: 'true' }, stub(), async (ctx, store) => {
+  await run({}, stub(), async (ctx, store) => {
     const { p } = await setup(ctx, store);
     const r = await ctx.g(`/api/v1/profiles/${p.id}/school-search`, { method: 'POST', body: {} });
     assert.equal(r.data.status, 'blocked');
-    assert.equal(r.data.reason, 'grounding_ack_missing', 'free-only (default) keeps the paid feature off');
+    assert.equal(r.data.reason, 'grounding_ack_missing', 'no explicit paid acknowledgement keeps the feature off');
     assert.ok(!ctx.calls.some(isSearch));
   });
-  await run({ GEMINI_GROUNDING_ACK: 'true', GEMINI_FREE_ONLY: 'false' }, (c) => (isSearch(c) ? grounded() : stub()(c)), async (ctx, store) => {
+  await run({ GEMINI_GROUNDING_ACK: 'true' }, (c) => (isSearch(c) ? grounded() : stub()(c)), async (ctx, store) => {
     const { p } = await setup(ctx, store);
     const r = await ctx.g(`/api/v1/profiles/${p.id}/school-search`, { method: 'POST', body: {} });
     assert.equal(r.data.status, 'ok', JSON.stringify(r.data));
@@ -189,3 +189,46 @@ test('domain: limitation sentences keep exact spans; competency fit is keyword-b
   assert.equal(fit[1].answers, 0);
   assert.equal(fit[1].avg_score, 0);
 });
+
+test('retry: same approved plan runs again as attempt 2 (no redesign), each report has comments; a sensitive answer is stopped before any AI call and never stored', () =>
+  run({}, stub({ turn: { action: 'next', turn_score: { relevance: 3, specificity: 2, reasoning: 3 } } }), async (ctx, store) => {
+    const { p } = await setup(ctx, store);
+    await approve(ctx, p);
+    const finish = async (answers) => {
+      const s = await general(ctx, p);
+      assert.equal(s.status, 201, JSON.stringify(s.data));
+      let v = s.data.version;
+      const cmd = async (type, payload = {}) => { const r = await ctx.g(`/api/v1/sessions/${s.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: v, type, payload } }); if (r.data?.version) v = r.data.version; return r; };
+      await cmd('session.start');
+      const seen = [];
+      for (let i = 0; i < 12 && (await ctx.g(`/api/v1/sessions/${s.data.id}`)).data.state === 'active'; i++) seen.push((await cmd('turn.text', { text: answers[i % answers.length] })).data);
+      const rep = (await ctx.g(`/api/v1/sessions/${s.data.id}/report`)).data;
+      return { id: s.data.id, rep, seen };
+    };
+    const a1 = await finish([fx.answers[0]]);
+    const risky = '저희 아버지가 대학 교수이고 저는 과학고에서 공부했습니다. 그래서 실험 설계를 직접 해 봤습니다.';
+    const a2 = await finish([risky, fx.answers[1], fx.answers[2]]);
+    assert.equal(a1.rep.attempt_no, 1);
+    assert.equal(a2.rep.attempt_no, 2);
+    assert.equal(a1.rep.profile_version_id, a2.rep.profile_version_id);
+    assert.deepEqual(a1.rep.transcript.map((t) => t.question_text).slice(0, 5), a2.rep.transcript.map((t) => t.question_text).slice(0, 5), 'questions are the frozen plan');
+    for (const t of [...a1.rep.transcript, ...a2.rep.transcript]) {
+      assert.ok(t.comment && typeof t.comment.basis === 'string', 'every answer has a comment with its basis');
+      assert.ok(['none', 'medium', 'high'].includes(t.risk.level));
+    }
+    // 블라인드 사전 차단: 민감한 답변은 AI로 가기 전에 멈추고(저장·전송 없음) 같은 질문으로 다시 답하게 한다.
+    const blocked = a2.seen[0];
+    assert.equal(blocked.action, 'blind_blocked');
+    assert.equal(blocked.ai_sent, false);
+    assert.ok(blocked.categories.some((c) => c.id === 'family_job') && blocked.categories.some((c) => c.id === 'school_type'));
+    assert.ok(!/교수|과학고/.test(JSON.stringify(blocked)), 'the response never echoes the sensitive phrase');
+    assert.ok(a2.rep.transcript.every((t) => t.risk.level === 'none' && !t.answer_text.includes('과학고')), 'blocked answer was never stored');
+    assert.equal(a2.rep.blind_safety.blocked_count, a2.seen.filter((x) => x.action === 'blind_blocked').length);
+    assert.ok(a2.rep.blind_safety.blocked_count >= 1);
+    assert.ok(a2.rep.blind_safety.events[0].labels.includes('가족의 직업·직장'));
+    assert.ok(!JSON.stringify(a2.rep.blind_safety).includes('과학고'), 'safety summary has no raw text');
+    assert.equal(a1.rep.blind_safety.blocked_count, 0);
+    assert.ok(a1.rep.transcript.every((t) => t.risk.level === 'none'));
+    const list = (await ctx.g('/api/v1/sessions')).data.sessions.filter((x) => x.profile_version_id === a1.rep.profile_version_id);
+    assert.deepEqual(list.map((x) => x.attempt_no).sort(), [1, 2]);
+  }));

@@ -136,20 +136,34 @@ test('gate on Vercel: locked requests never touch Redis; fail closed without SIT
   assert.equal(last.status, 429);
 });
 
-test('ai switch on Vercel: state lives in Redis across cold starts, password required, rate limited via Redis', async () => {
+test('ai switch on Vercel: state lives in Redis across cold starts and is rate limited via Redis', async () => {
   const up = fakeUpstash();
   const redis = createRedis({ url: 'https://redis.test', token: 'tok', fetchFn: up.fetchFn });
-  const mk = () => createVercelHandler({ env: { ...ENV, AI_SWITCH_PASSWORD: 'sw-vercel' }, redis });
+  const mk = () => createVercelHandler({ env: { ...ENV }, redis });
   const call = (method, body, ip = '4.4.4.4') => mk()(new Request('http://x/api/v1/ai-switch', { method, headers: { 'x-forwarded-for': ip, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }));
-  assert.deepEqual(await (await call('GET')).json(), { on: true, configured: true });
-  assert.equal((await call('POST', { on: false, password: 'bad' })).status, 401);
-  assert.equal(up.kv.has('flag:ai_off'), false);
-  assert.equal((await call('POST', { on: false, password: 'sw-vercel' })).status, 200);
+  assert.deepEqual(await (await call('GET')).json(), { on: true });
+  assert.equal((await call('POST', { password: 'x' })).status, 422);
+  assert.equal((await call('POST', { on: false })).status, 200);
   assert.equal(up.kv.get('flag:ai_off'), '1');
   assert.equal((await (await call('GET')).json()).on, false, 'a fresh handler sees the stored state');
-  assert.equal((await call('POST', { on: true, password: 'sw-vercel' })).status, 200);
+  assert.equal((await call('POST', { on: true })).status, 200);
   assert.equal(up.kv.has('flag:ai_off'), false);
   let last;
-  for (let i = 0; i < 6; i++) last = await call('POST', { on: false, password: 'bad' }, '5.5.5.5');
+  for (let i = 0; i < 22; i++) last = await call('POST', { on: true }, '5.5.5.5');
   assert.equal(last.status, 429);
+});
+
+test('guest on Vercel: always available, account persists across cold starts', async () => {
+  const up = fakeUpstash();
+  const redis = createRedis({ url: 'https://redis.test', token: 'tok', fetchFn: up.fetchFn });
+  const mk = (extra = {}) => createVercelHandler({ env: { ...ENV, ...extra }, redis });
+  const call = (h, path, { method = 'GET', token } = {}) => h(new Request('http://x' + path, { method, headers: { 'x-forwarded-for': '9.9.9.9', 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(method !== 'GET' ? { 'Idempotency-Key': crypto.randomUUID() } : {}) }, body: method === 'POST' ? '{}' : undefined }));
+  assert.equal((await (await call(mk(), '/api/v1/auth/mode')).json()).guest_allowed, true);
+  const g = await call(mk(), '/api/v1/auth/guest', { method: 'POST' });
+  assert.equal(g.status, 201);
+  const { token, user } = await g.json();
+  assert.equal(user.guest, true);
+  const me = await (await call(mk(), '/api/v1/auth/me', { token })).json();
+  assert.equal(me.guest, true);
+  assert.equal((await call(mk({ CLAUDE_API_KEY: 'k', CLAUDE_BASE_URL: 'https://x.test', CLAUDE_MODEL: 'm' }), '/api/v1/auth/guest', { method: 'POST' })).status, 201, 'live key configured: guests remain available');
 });

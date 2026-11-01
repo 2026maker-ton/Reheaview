@@ -3,12 +3,16 @@ import { INTERVIEW_TYPES, DURATIONS, PERSONAS, INPUT_MODES } from '../../domain/
 import { ROLES, ROLE_IDS } from '../../domain/roles.js';
 import { PT_TASKS, SITUATION_SCENARIOS, PANEL_PRESETS } from '../../domain/scenarios.js';
 import { DISCUSSION_TOPICS } from '../../domain/discussion.js';
+import { publicPersonas } from '../../domain/personas.js';
 
 export function createOpsHandlers(d) {
   const { config, store, ledger, trends, err, now, provider, providerInfo, gemini, groq, isKilled, adminEnabled, checkAdmin, parseTrendId, registry, caller, requestContext } = d;
 
   // 공개 상태 확인은 최소 정보만: 설정·모델·예산 정보는 인증된 사용자에게만 준다.
   const health = (authed) => ({ status: 200, body: { ok: true, provider: authed ? providerInfo() : { selected: provider.name }, time: now(), ...(authed ? {data_policy:{durable:config.durableStorage === true,retention_days:config.limits.dataTtlDaysDefault,backup_retention_days:null}} : {}) } });
+
+  // 면접관 관점(페르소나) 목록: 비활성 항목은 이유와 함께 내려 보낸다.
+  const personas = () => ({ status: 200, body: publicPersonas() });
 
   const interviewTypes = () => ({
     status: 200,
@@ -89,7 +93,7 @@ export function createOpsHandlers(d) {
   }
 
   function listSessions(owner) {
-    return { status: 200, body: { sessions: store.listSessions(owner).filter((s) => !['deleted', 'deleting'].includes(s.state)).map((s) => ({ id: s.id, state: s.state, mode: s.mode, interview_type: s.interview_type || s.mode || 'general', persona: s.persona, blind: !!s.blind, created_at: s.created_at, completed_at: s.completed_at || null, school_name: store.getProfile(owner, store.getVersion(s.profile_version_id)?.profile_id)?.target_name || null, department: store.getProfile(owner, store.getVersion(s.profile_version_id)?.profile_id)?.role || null, session_kind: s.policy_snapshot?.practice_of ? 'practice' : 'interview', baseline_session_id: s.policy_snapshot?.transfer_of || null, transfer_id: [...store._maps.transferJobs.entries()].find(([,j]) => j.owner_id === owner && j.retry_session_id === s.id)?.[0] || null, question_count: s.questions.length })) } };
+    return { status: 200, body: { sessions: store.listSessions(owner).filter((s) => !['deleted', 'deleting'].includes(s.state)).map((s) => ({ id: s.id, state: s.state, mode: s.mode, interview_type: s.interview_type || s.mode || 'general', persona: s.persona, blind: !!s.blind, created_at: s.created_at, completed_at: s.completed_at || null, profile_version_id: s.profile_version_id || null, attempt_no: s.attempt_no || null, school_name: store.getProfile(owner, store.getVersion(s.profile_version_id)?.profile_id)?.target_name || null, department: store.getProfile(owner, store.getVersion(s.profile_version_id)?.profile_id)?.role || null, session_kind: s.policy_snapshot?.practice_of ? 'practice' : 'interview', baseline_session_id: s.policy_snapshot?.transfer_of || null, transfer_id: [...store._maps.transferJobs.entries()].find(([,j]) => j.owner_id === owner && j.retry_session_id === s.id)?.[0] || null, question_count: s.questions.length })) } };
   }
 
   // GET /providers/status: operation별 실제 사용 공급자·모드. 키·모델 ID·BASE_URL은 싣지 않는다(UI 모드 칩·설정 요약용).
@@ -110,5 +114,5 @@ export function createOpsHandlers(d) {
     return { status: 200, body: { operations, summary: live === 0 ? 'mock' : live === registry.operations().length ? 'live' : 'partial_live' } };
   }
 
-  return { health, providersStatus, interviewTypes, metrics, geminiModels, adminStatus, trendHistory, publicTrend, listSessions };
+  return { health, providersStatus, interviewTypes, personas, metrics, geminiModels, adminStatus, trendHistory, publicTrend, listSessions };
 }

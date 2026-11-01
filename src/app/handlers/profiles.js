@@ -12,6 +12,8 @@ import { verifyAnalysis, ruleBasedAnalysis, buildUnconfirmed, mergeIntoInstituti
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg, isMinorPossible } from '../../domain/institution.js';
 import { buildGeneralPlan, validateModelStages, validateSkeleton, limitationSentences, INTERVIEW_FORMATS } from '../../domain/interview-format.js';
 import { STAGES_PROMPT_VERSION } from '../../providers/prompts/interview.js';
+import { sanitizeForAi } from '../../domain/blind-gate.js';
+import { resolvePersonaIds, personaBlock, personaForStage, personaName, personaOutputOk } from '../../domain/personas.js';
 
 // 데모 fixture 소스는 저장 형태(kind:'demo_fixture')를 유지하되 기관 프로필 규칙 분석에는 공식 자료처럼 넣는다.
 const asBuildSource = (s) => (s.kind === 'demo_fixture' ? { ...s, kind: 'official' } : s);
@@ -46,7 +48,10 @@ export function createProfileHandlers(d) {
     }
     const pii = detectPii(source + application + (body.experiences || []).join(' '));
     // 지원서 본문은 마스킹본만 저장·분석한다(원문 PII 비보관). 이 슬라이스는 규칙 기반이라 외부로 전송하지 않는다.
-    const maskedApplication = maskPii(application).normalize('NFC');
+    // 블라인드 사전 차단(설계서 §3.5): 학교·가족 배경을 짐작하게 하는 표현은 AI로 가기 전에 가리고, 가릴 수 없거나 필터가 실패하면 분석을 멈춘다(fail-closed).
+    const san = sanitizeForAi(maskPii(application));
+    if (san.unmasked || san.error) return err('validation_error', '개인정보 검사를 끝내지 못했거나 가릴 수 없는 표현이 있어 분석을 멈췄습니다. 지원서에서 출신 학교 유형·가족 직업 표현을 고쳐 다시 시도해 주세요.', 422, { requestId });
+    const maskedApplication = san.text.normalize('NFC');
     const { profile, version_id } = store.createProfile(owner, { ...body, application_text: maskedApplication, org_type: orgType, synthetic });
     // 사용자 제공 기관 URL(출처 메타): SSRF 방어 검증 후 기록만 한다 (fetch 없음)
     const providedSources = [];
@@ -149,7 +154,7 @@ export function createProfileHandlers(d) {
     }), school_discovery };
     store.setInstitution(profile.id, institution, 'review');
     void pubNotice;
-    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, provider_trace: traces, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review', school_discovery } };
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, provider_trace: traces, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review', school_discovery, privacy: { filter_version: san.filter_version, masked: san.masked_categories } } };
   }
 
   function getProfile(owner, id) {
@@ -214,10 +219,12 @@ export function createProfileHandlers(d) {
     const claims = claimItems(v, v.frozen_excluded_claim_ids);
     const limits = limitationSentences(p.application_text);
     const seed = parseInt(String(p.id).replace(/[^0-9a-f]/g, '').slice(0, 8), 16) || 0;
+    const personaIds = v.persona_ids || resolvePersonaIds().ids;
+    const pblock = personaBlock(personaIds);
     const gate = caller.plan('questions.design', ctx);
     let modelStages = {};
     // 근거(역량·주장·한계 문장)와 학과가 같으면 앞서 모델로 만든 질문 구조·문장을 재사용한다(재승인할 때 Sonnet·Haiku를 다시 부르지 않는다). 승인 body.refresh=true면 다시 만든다.
-    const planKey = JSON.stringify([p.role || '', competencies.map((x) => [x.id, x.label, x.quote]), claims.map((c) => [c.id, c.quote]), limits.map((c) => [c.id, c.quote])]);
+    const planKey = JSON.stringify([p.role || '', competencies.map((x) => [x.id, x.label, x.quote]), claims.map((c) => [c.id, c.quote]), limits.map((c) => [c.id, c.quote]), personaIds]);
     const planHit = !refresh && gate.live && p.plan_cache?.key === planKey ? p.plan_cache : null;
     if (planHit) { modelStages = planHit.modelStages; plan.provider_trace.push(...planHit.traces.map((t) => ({ ...t, cached: true, latency_ms: 0 }))); }
     else if (!gate.live) plan.provider_trace.push({ operation: gate.operation, provider: 'mock', mode: gate.mode, reason: gate.reason, model_alias: 'rule-based', latency_ms: null });
@@ -229,7 +236,7 @@ export function createProfileHandlers(d) {
       const textOf = new Map([...competencies.map((x) => [x.id, `${x.label} ${x.quote}`.trim()]), ...all.map((c) => [c.id, c.quote])]);
       const sres = await caller.call('questions.design', {
         ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:skeleton`, amount: config.profileRate.reserve },
-        invoke: (a) => a.designSkeleton({ department: p.role || '', competencies, claims: all }),
+        invoke: (a) => a.designSkeleton({ department: p.role || '', competencies, claims: all, persona: pblock }),
         mock: () => ({ stages: [] }), validate: (o) => Array.isArray(o?.stages),
       });
       plan.provider_trace.push(sres.trace);
@@ -240,7 +247,7 @@ export function createProfileHandlers(d) {
         if (picked.length) {
           const wres = await caller.call('questions.write', {
             ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:write`, amount: config.profileRate.reserve },
-            invoke: (a) => a.writeQuestions({ department: p.role || '', stages: picked }),
+            invoke: (a) => a.writeQuestions({ department: p.role || '', stages: picked, persona: pblock }),
             mock: () => ({ stages: [] }), validate: (o) => Array.isArray(o?.stages),
           });
           plan.provider_trace.push(wres.trace);
@@ -256,7 +263,7 @@ export function createProfileHandlers(d) {
     } else {
       const qres = await caller.call('questions.design', {
         ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:qdesign`, amount: config.profileRate.reserve },
-        invoke: (a) => a.designStages({ department: p.role || '', competencies, claims: [...claims, ...limits] }),
+        invoke: (a) => a.designStages({ department: p.role || '', competencies, claims: [...claims, ...limits], persona: pblock }),
         mock: () => ({ stages: [] }),
         validate: (o) => Array.isArray(o?.stages),
       });
@@ -267,9 +274,13 @@ export function createProfileHandlers(d) {
         modelStages = v2.stages; plan.dropped_model_questions = v2.dropped;
       }
     }
+    // 페르소나 공통 금지 규칙(정직성·인격 단정, 합격 판단, 사칭)을 어긴 문장은 버리고 그 단계는 규칙 질문이 맡는다.
+    for (const [k, m] of Object.entries(modelStages)) if (!personaOutputOk(m?.text) || !personaOutputOk(m?.bridge)) { delete modelStages[k]; (plan.dropped_persona_stages ||= []).push(k); }
     if (!planHit && Object.keys(modelStages).length && plan.provider_trace.some((t) => t.mode === 'live')) p.plan_cache = { key: planKey, modelStages, traces: plan.provider_trace };
     plan.general = buildGeneralPlan({ department: p.role || '', competencies, claims, limits, modelStages, seed, generator: [...plan.provider_trace].reverse().find((t) => t.mode === 'live')?.provider || 'gemini', provider_trace: plan.provider_trace });
     plan.generator = plan.general.generator;
+    // 단계별로 어느 관점이 말하는지 계획에 함께 동결한다(면접·다시 보기가 같은 관점을 쓴다).
+    plan.personas = { ids: personaIds, names: personaIds.map(personaName), per_stage: Object.fromEntries(plan.general.stages.map((s) => [s.stage, personaForStage(personaIds, s.stage)])) };
     return plan;
   }
 
@@ -278,9 +289,14 @@ export function createProfileHandlers(d) {
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const vid = body.version_id || p.approved_version_id;
     if (!vid) return err('validation_error', 'version_id가 필요합니다.', 422);
+    // 면접관 관점(페르소나) 선택: 조합 id 또는 id 목록. 비활성(교수 연구분야 특화형 등)은 거절한다.
+    const personaReq = body.persona_ids !== undefined ? body.persona_ids : body.persona_combination;
+    const picked = personaReq !== undefined ? resolvePersonaIds(personaReq, store.getInstitution(id)?.profile) : null;
+    if (picked?.error) return err('validation_error', picked.error, 422);
     { const sv = store.getVersion(vid); if (sv) syncDocClaims(owner, p, sv); }
     const v = store.approveVersion(owner, id, vid);
     if (!v) return err('not_found', '버전을 찾을 수 없습니다.', 404);
+    if (picked) v.persona_ids = picked.ids; else if (!v.persona_ids) v.persona_ids = resolvePersonaIds().ids;
     // 질문 계획 동결(WP-C8): 승인 시점의 주장 제외 목록을 스냅샷한다. 이후 변경은 재승인해야 세션에 반영된다.
     v.frozen_excluded_claim_ids = [...(v.excluded_claim_ids || [])];
     // 기관 프로필도 함께 승인(불변 스냅샷). 사용자가 수정한 경우 body.institution_edits 반영.
@@ -300,7 +316,7 @@ export function createProfileHandlers(d) {
     }
     if (approvedInst) store.setInstitution(id, approvedInst, 'approved');
     v.plan = await designPlan(owner, p, v, approvedInst, { refresh: body.refresh === true });
-    return { status: 200, body: { id: v.id, profile_id: id, status: 'approved', approved_at: v.approved_at, institution_status: approvedInst ? 'approved' : null, plan: { generator: v.plan.generator, model_question_count: v.plan.model_questions.length, trend_used: v.plan.trend.used, provider_trace: v.plan.provider_trace } } };
+    return { status: 200, body: { id: v.id, profile_id: id, status: 'approved', approved_at: v.approved_at, institution_status: approvedInst ? 'approved' : null, personas: v.plan.personas, plan: { generator: v.plan.generator, model_question_count: v.plan.model_questions.length, trend_used: v.plan.trend.used, provider_trace: v.plan.provider_trace } } };
   }
 
   // ---- 기관 출처·프로필 API ----
@@ -512,7 +528,8 @@ export function createProfileHandlers(d) {
     if (!p.school_name && !p.target_name) return err('validation_error', '학교명이 필요합니다.', 422);
     const ctx = requestContext(owner, { synthetic: p.synthetic === true });
     const planned = caller.plan('school.search', ctx);
-    const groundingOff = !config.gemini.groundingAck || config.gemini.freeOnly !== false;
+    // 검색(grounding)은 유료 기능이라 GEMINI_GROUNDING_ACK=true가 명시된 때만 켠다. 무료 전용 모드(GEMINI_FREE_ONLY)는 다른 호출의 모델 제한이며 이 검색을 막지 않는다.
+    const groundingOff = !config.gemini.groundingAck;
     if (!planned.live || groundingOff) {
       const reason = groundingOff ? 'grounding_ack_missing' : planned.reason;
       return { status: 200, body: { profile_id: profileId, status: 'blocked', reason, provider_trace: [{ operation: 'school.search', provider: 'mock', mode: 'blocked', reason, model_alias: 'none', latency_ms: null }], history: liveHistory(row.profile) } };

@@ -1,10 +1,11 @@
 // Provider 어댑터: mock 기본 + gemini(게이트 통과 시에만). 키는 서버에서만 사용.
 import { estimateTokens } from '../domain/ledger.js';
 import { buildClaimsPrompt } from './prompts/claims.js';
-import { buildEvaluationMessages } from './prompts/evaluation.js';
+import { buildEvaluationMessages, buildGradeMessages } from './prompts/evaluation.js';
 import { buildSchoolPrompt } from './prompts/school.js';
 import { buildQuestionsMessages, buildTrendDecideMessages } from './prompts/questions.js';
 import { buildStageMessages, buildTurnMessages, buildSchoolSearchMessages } from './prompts/interview.js';
+import { buildCommentMessages } from './prompts/comment.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 모델 JSON 파싱: 코드 펜스 제거. 실패하면 invalid로 알린다(호출 래퍼가 규칙 기반 폴백).
@@ -210,11 +211,20 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       if (!['next', 'followup'].includes(parsed?.action)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
       return { ...parsed, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
     },
+    // 보고서 한줄평(report.comment): 면접관 말투 한줄평 두 개. 길이·금지 표현 검증은 호출자(서버)가 한다.
+    async writeComments(input) {
+      const { system, user } = buildCommentMessages(input);
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 400 }));
+      const parsed = parseJson(r.text);
+      if (typeof parsed?.fit_comment !== 'string' || typeof parsed?.dimension_comment !== 'string') throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      return { fit_comment: parsed.fit_comment, dimension_comment: parsed.dimension_comment, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
+    },
     // 학교·전형 검색(Google Search grounding). 검색 결과와 근거 메타데이터를 그대로 돌려준다(검증·저장 정책은 서버).
     async searchSchool(input) {
       const { system, user } = buildSchoolSearchMessages(input);
       // grounding 응답은 JSON 모드와 함께 쓰지 않는다(텍스트에서 JSON을 파싱). 대체 모델 자동 전환 없음(검색 과금 모델 고정).
-      const model = FREE_ONLY && !ALLOWED_FREE_MODELS.has(textModel) ? 'gemini-3.5-flash-lite' : textModel;
+      // 검색은 유료 기능이므로 무료 허용 목록으로 모델을 바꾸지 않고 설정한 텍스트 모델을 그대로 쓴다(GROUNDING_ACK로만 열림).
+      const model = textModel;
       const r = await generateContent(model, { system, user, maxOutputTokens: 1200, json: false, grounding: true });
       if (!String(r.text || '').trim()) throw Object.assign(new Error('gemini empty'), { code: 502, invalid: true });
       return { text: String(r.text), grounding: r.grounding, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
@@ -263,6 +273,15 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       return { model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs, utterance: String(utterance).slice(0, 1000) };
     },
     // 평가(WP-E): 모델은 수준·관찰·인용 후보만 내고, 보고서 구성·좌표 계산·검증은 서버가 한다.
+    // 분업(2026-11-01) 채점: Sonnet 관찰 안에서만 level을 정한다(레거시 단일 호출도 유지).
+    async gradeObservations({ observations, rubric }) {
+      const { system, user } = buildGradeMessages({ observations, rubric });
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 2500 }));
+      let parsed;
+      try { parsed = JSON.parse(String(r.text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, invalid: true }); }
+      if (!parsed || !Array.isArray(parsed.dimensions)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      return { parsed, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
+    },
     async evaluateAnswers({ turns, rubric }) {
       const { system, user } = buildEvaluationMessages({ turns, rubric });
       const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 2500 }));
