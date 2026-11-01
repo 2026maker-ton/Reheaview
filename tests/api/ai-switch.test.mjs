@@ -77,6 +77,7 @@ test('guest: Mock mode lets people in without signup, guest data never reaches e
     assert.equal(g.data.user.email, null);
     const me = await c('/api/v1/auth/me', { token: g.data.token });
     assert.equal(me.data.guest, true);
+    await c('/api/v1/ai-switch', { method: 'POST', body: { on: false } });
     const p = await c('/api/v1/profiles', { method: 'POST', token: g.data.token, body: { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량', application_text: '저는 동아리에서 팀장을 맡아 일정을 조율했습니다.' } });
     assert.equal(p.status, 201, JSON.stringify(p.data));
     assert.equal((await c('/api/v1/providers/status', { token: g.data.token })).data.summary, 'mock');
@@ -85,26 +86,43 @@ test('guest: Mock mode lets people in without signup, guest data never reaches e
   } finally { await close(); }
 });
 
-test('guest: available with live keys, always blocked from external AI, and rate limited', async () => {
-  await withProviders({ env: { ...CLAUDE }, overrides: { syntheticTraffic: true }, respond }, async (ctx) => {
+test('guest AI: explicit adult consent opens approved providers; AI off is Mock; missing/forged consent never sends data', async () => {
+  await withProviders({ env: { ...CLAUDE, CLAUDE_REAL_DATA_ACK: 'true', GROQ_WHISPER_KEY: FAKE_KEY, GROQ_LIVE_ACK: 'true', GROQ_REAL_DATA_ACK: 'true' }, respond }, async (ctx) => {
     const post = (path, body, ip) => fetch(`${ctx.base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(ip ? { 'x-forwarded-for': ip } : {}) }, body: JSON.stringify(body) });
-    assert.deepEqual(await (await fetch(`${ctx.base}/api/v1/auth/mode`)).json(), { guest_allowed: true });
-    assert.equal((await post('/api/v1/auth/guest', {})).status, 201, 'guest works with live keys');
-    await sw(ctx, { on: false });
-    assert.deepEqual(await (await fetch(`${ctx.base}/api/v1/auth/mode`)).json(), { guest_allowed: true });
-    const ok = await post('/api/v1/auth/guest', {}, '3.3.3.3');
-    assert.equal(ok.status, 201);
-    const { token } = await ok.json();
-    // 체험 계정은 AI 스위치가 다시 켜져도 외부 AI로 나가지 않는다(만 18세 확인 기록 없음)
-    await sw(ctx, { on: true });
-    const before = ctx.calls.length;
-    await ctx.g('/api/v1/consents', { method: 'POST', token, body: { age_18_confirmed: true, notice_version: 'test' } });
-    const p = await ctx.g('/api/v1/profiles', { method: 'POST', token, body: { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량', application_text: '저는 동아리 앱 개발 프로젝트에서 팀장을 맡아 일정을 조율했습니다.' } });
+    const guest = await post('/api/v1/auth/guest', {});
+    const { token } = await guest.json();
+    const req = (path, body) => ctx.g(path, { method: 'POST', token, body, noConsent: true });
+    const profile = { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량을 중시합니다.', application_text: '저는 동아리 앱 개발 프로젝트에서 팀장을 맡아 일정을 조율했습니다.', synthetic: true };
+    assert.equal((await req('/api/v1/profiles', profile)).status, 428);
+    assert.equal((await req('/api/v1/consents', { age_18_confirmed: true, notice_version: 'test', notice_ack: true })).status, 428);
+    assert.equal((await req('/api/v1/consents', { age_18_confirmed: false, notice_version: 'guest-ai-2026-11-01', notice_ack: true })).status, 403);
+    assert.equal((await req('/api/v1/consents', { age_18_confirmed: true, notice_version: 'guest-ai-2026-11-01' })).status, 428);
+    assert.equal(ctx.calls.length, 0);
+    assert.equal((await req('/api/v1/consents', { age_18_confirmed: true, notice_version: 'guest-ai-2026-11-01', notice_ack: true })).status, 201);
+    assert.equal((await ctx.g('/api/v1/auth/me', { token })).data.ai_consent, true);
+    assert.equal((await ctx.g('/api/v1/stt/status', { token })).data.real_data_allowed, true, 'guest consent includes the audio notice');
+    const p = await req('/api/v1/profiles', profile);
     assert.equal(p.status, 201, JSON.stringify(p.data));
-    await ctx.g(`/api/v1/profiles/${p.data.id}/school-analysis`, { method: 'POST', token, body: { refresh: true } });
-    assert.equal(ctx.calls.length, before, 'guest never triggers a provider call');
+    await req(`/api/v1/profiles/${p.data.id}/school-analysis`, { refresh: true });
+    assert.ok(ctx.calls.length > 0, 'consenting guest may use an approved real-data provider (stub)');
+    const before = ctx.calls.length;
     await sw(ctx, { on: false });
+    await req(`/api/v1/profiles/${p.data.id}/school-analysis`, { refresh: true });
+    assert.equal(ctx.calls.length, before, 'AI off performs zero outbound calls');
+    assert.equal((await ctx.g('/api/v1/providers/status', { token })).data.summary, 'mock');
     for (let i = 0; i < 5; i++) await post('/api/v1/auth/guest', {}, '6.6.6.6');
     assert.equal((await post('/api/v1/auth/guest', {}, '6.6.6.6')).status, 429);
+  });
+});
+
+test('guest consent does not bypass provider real-data approval', async () => {
+  await withProviders({ env: CLAUDE, respond }, async (ctx) => {
+    const guest = await ctx.g('/api/v1/auth/guest', { method: 'POST', body: {} });
+    const token = guest.data.token;
+    await ctx.g('/api/v1/consents', { method: 'POST', token, body: { age_18_confirmed: true, notice_ack: true, notice_version: 'guest-ai-2026-11-01' } });
+    const status = await ctx.g('/api/v1/providers/status', { token });
+    assert.equal(status.data.operations['school.analyze'].mode, 'mock');
+    assert.ok(['synthetic_only', 'real_data_ack_missing'].includes(status.data.operations['school.analyze'].blocked_reason));
+    assert.equal(ctx.calls.length, 0);
   });
 });

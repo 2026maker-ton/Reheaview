@@ -96,7 +96,7 @@ export function startServer() {
   const app = createApp({ defaultStore: 'file' });
   app.server.listen(app.config.port, () => {
     const p = app.providerInfo();
-    console.log(`Intervu listening on http://localhost:${app.config.port}`);
+    console.log(`Reheaview listening on http://localhost:${app.config.port}`);
     console.log(`Provider: ${p.selected} | Gemini key configured: ${p.configured} | paidAck: ${p.paidAck}`);
     const tokens = Object.keys(app.config.devTokens);
     if (!tokens.length) console.log('NOTE: DEV_TOKEN_* 없음 — 이메일 가입·로그인만 사용합니다.');

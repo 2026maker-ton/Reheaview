@@ -7,15 +7,20 @@ import { toast } from '../core/toast.js';
 import { askConfirm, askInput, dialog } from '../core/dialog.js';
 import { loadProvider } from './dashboard.js';
 import { clearDraft } from './draft.js';
+import { ensureGuestAiConsent } from '../core/guest-ai.js';
 
 function showUser() {
   $('#userMenu').hidden = !state.user;
   $('#userName').textContent = state.user?.name ? (state.user.guest ? state.user.name : `${state.user.name}님`) : '';
   $('#guestLoginBtn').hidden = !state.user?.guest;
+  $('#guestAiBtn').hidden = !state.user?.guest || !!state.user.ai_consent;
+  $('#myDataBtn').hidden = !!state.user?.guest;
+  $('#logoutBtn').hidden = !!state.user?.guest;
   $('#guestWarning').hidden = !state.user?.guest || dismissedGuest === state.user.id;
 }
 let dismissedGuest = null;
 $('#dismissGuestWarning')?.addEventListener('click', () => { dismissedGuest = state.user?.id; showUser(); });
+$('#guestAiBtn')?.addEventListener('click', async () => { try { if (await ensureGuestAiConsent({ turningOn: true })) await loadProvider(); } catch (err) { toast(err.message, true); } });
 $('#guestLoginBtn')?.addEventListener('click', () => signedOut(''));
 
 export async function startGuest() {

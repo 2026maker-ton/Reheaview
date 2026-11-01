@@ -27,7 +27,7 @@ test('P0-3: claim questions quote the sentence verbatim and add no new facts', a
   for (const q of qs) {
     const ev = q.application_evidence[0];
     assert.ok(q.text.includes(ev.quote), 'question embeds the exact claim sentence');
-    assert.ok(q.text.startsWith('자기소개서에 “'), 'fixed template, quote cannot change policy');
+    assert.ok(q.text.startsWith('학생부·활동 자료에 “'), 'fixed template, quote cannot change policy');
     assert.equal(q.text.split(ev.quote).join('').match(/\d/g), null, 'template adds no numbers beyond the quote');
     assert.deepEqual(q.application_evidence_ids, [ev.id]);
     assert.equal(q.source_status, 'user_supplied');

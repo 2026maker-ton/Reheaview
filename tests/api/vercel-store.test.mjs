@@ -157,7 +157,7 @@ test('guest on Vercel: always available, account persists across cold starts', a
   const up = fakeUpstash();
   const redis = createRedis({ url: 'https://redis.test', token: 'tok', fetchFn: up.fetchFn });
   const mk = (extra = {}) => createVercelHandler({ env: { ...ENV, ...extra }, redis });
-  const call = (h, path, { method = 'GET', token } = {}) => h(new Request('http://x' + path, { method, headers: { 'x-forwarded-for': '9.9.9.9', 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(method !== 'GET' ? { 'Idempotency-Key': crypto.randomUUID() } : {}) }, body: method === 'POST' ? '{}' : undefined }));
+  const call = (h, path, { method = 'GET', token, body = {} } = {}) => h(new Request('http://x' + path, { method, headers: { 'x-forwarded-for': '9.9.9.9', 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(method !== 'GET' ? { 'Idempotency-Key': crypto.randomUUID() } : {}) }, body: method === 'POST' ? JSON.stringify(body) : undefined }));
   assert.equal((await (await call(mk(), '/api/v1/auth/mode')).json()).guest_allowed, true);
   const g = await call(mk(), '/api/v1/auth/guest', { method: 'POST' });
   assert.equal(g.status, 201);
@@ -165,5 +165,10 @@ test('guest on Vercel: always available, account persists across cold starts', a
   assert.equal(user.guest, true);
   const me = await (await call(mk(), '/api/v1/auth/me', { token })).json();
   assert.equal(me.guest, true);
+  assert.equal(me.ai_consent, false);
+  const consent = await call(mk(), '/api/v1/consents', { method: 'POST', token, body: { age_18_confirmed: true, notice_ack: true, notice_version: 'guest-ai-2026-11-01' } });
+  assert.equal(consent.status, 201);
+  const after = await (await call(mk(), '/api/v1/auth/me', { token })).json();
+  assert.equal(after.ai_consent, true, 'guest AI consent persists across cold starts');
   assert.equal((await call(mk({ CLAUDE_API_KEY: 'k', CLAUDE_BASE_URL: 'https://x.test', CLAUDE_MODEL: 'm' }), '/api/v1/auth/guest', { method: 'POST' })).status, 201, 'live key configured: guests remain available');
 });

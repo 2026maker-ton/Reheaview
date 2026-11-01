@@ -1,3 +1,5 @@
+import { createLiveTestBudget } from './live-test-budget.mjs';
+globalThis.fetch = createLiveTestBudget(globalThis.fetch).fetch;
 // Gemini 실키 스모크 테스트 (합성 텍스트만 사용, 개인정보 없음)
 // 사용: node tools/gemini-smoke.mjs
 import { loadDotEnv } from '../src/env.js';

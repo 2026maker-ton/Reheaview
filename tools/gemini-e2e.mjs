@@ -1,3 +1,5 @@
+import { createLiveTestBudget } from './live-test-budget.mjs';
+globalThis.fetch = createLiveTestBudget(globalThis.fetch).fetch;
 // Gemini 실키 E2E (합성 데이터만). GEMINI_PAID_ACK=true + GEMINI_ALLOW_UNPAID=true 로
 // '합성 트래픽'만 허용한 상태에서 어댑터 경로를 검증한다. 실제 사용자 데이터는 보내지 않는다.
 // 사용: node tools/gemini-e2e.mjs

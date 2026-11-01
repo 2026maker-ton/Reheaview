@@ -38,6 +38,15 @@ test('reset clears the segment', () => {
   g.reset(); assert.equal(g.spoke, false); assert.equal(g.stats().voiced, 0);
 });
 
+test('noise after confirmed speech does not keep the answer speaking forever', () => {
+  const gate = createSpeechGate();
+  run(gate, rep(.1, 12), true);
+  assert.equal(gate.spoke, true);
+  const noise = run(gate, rep(.1, 100), false);
+  assert.equal(noise.spoke, true, 'remember that this answer contained speech');
+  assert.equal(noise.voice, false, 'non-periodic background noise must count toward silence');
+});
+
 test('voiceTimeline: envelope capped at 120 and scaled to the answer peak; pauses >= 600ms split speech; short gaps do not', () => {
   const rms = []; const v = [];
   // 1s wait, 2s speech, 0.3s gap (not a pause), 1s speech, 1.5s pause, 1s speech, 3s trailing silence (frames of 50ms)

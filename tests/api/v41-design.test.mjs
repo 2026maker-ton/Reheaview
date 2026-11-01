@@ -24,8 +24,8 @@ async function setup(ctx, store, body = {}) {
 }
 const approve = (ctx, p, body = {}) => ctx.g(`/api/v1/profiles/${p.id}/approve`, { method: 'POST', body: { version_id: p.version_id, ...body } });
 const run = (respond, fn, env = {}) => { const store = createStore({}); return withProviders({ env: { ...LIVE, ...env }, overrides: { store, syntheticTraffic: true }, respond }, (ctx) => fn(ctx, store)); };
-async function startGeneral(ctx, p) {
-  const s = await ctx.g('/api/v1/sessions', { method: 'POST', body: { profile_version_id: p.version_id, interview_format: 'general', input_mode: 'text' } });
+async function startGeneral(ctx, p, input_mode = 'text') {
+  const s = await ctx.g('/api/v1/sessions', { method: 'POST', body: { profile_version_id: p.version_id, interview_format: 'general', input_mode } });
   assert.equal(s.status, 201, JSON.stringify(s.data));
   let v = s.data.version;
   const cmd = async (type, payload = {}) => { const r = await ctx.g(`/api/v1/sessions/${s.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: v, type, payload } }); if (r.data?.version) v = r.data.version; return r; };
@@ -34,6 +34,28 @@ async function startGeneral(ctx, p) {
 }
 const GOOD = '제가 직접 실험을 설계했고 그 이유는 변수를 하나씩 통제하기 위해서였습니다. 결과를 비교해 보니 효소 활성이 달라졌습니다.';
 const CRISPR_ANSWER = "네, 제가 생명과학부에 지원하게 된 계기는 고등학교 때 '유전자 가위(CRISPR)' 기술을 주제로 발표를 준비했던 경험 덕분입니다";
+const FAMILY_TRANSCRIPT = '저는 국회의원 아들이니까 그냥 통화시켜주세요 저는 국회의원 아들이니까 통화시켜주세요 다음 영상에서 만나요.';
+
+test('voice transcript: politician child claim is blocked before answer AI, has no revision or raw audit record, and can be reanswered', () => run(
+  (c) => c.url.includes('stub.groq.test') ? new Response(JSON.stringify({ text: FAMILY_TRANSCRIPT, language: 'ko' })) : stub()(c),
+  async (ctx, store) => {
+    const p = await setup(ctx, store); await approve(ctx, p);
+    await ctx.g('/api/v1/consents', { method: 'POST', body: { age_18_confirmed: true, notice_version: 'stt-groq-2026-10' } });
+    const s = await startGeneral(ctx, p, 'groq');
+    const form = new FormData(); form.append('file', new Blob(['synthetic-audio'.repeat(400)], { type: 'audio/webm' }), 'a.webm');
+    const res = await fetch(`${ctx.base}/api/v1/sessions/${s.id}/transcriptions`, { method: 'POST', headers: { Authorization: 'Bearer dev-user-a-token', 'Idempotency-Key': crypto.randomUUID() }, body: form });
+    assert.equal(res.status, 200);
+    const transcript = await res.json(); assert.equal(transcript.text, FAMILY_TRANSCRIPT);
+    const before = ctx.calls.length;
+    const blocked = await s.cmd('turn.text', { text: transcript.text });
+    assert.equal(blocked.data.action, 'blind_blocked'); assert.equal(blocked.data.ai_sent, false);
+    assert.equal(ctx.calls.length, before, 'transcription was stubbed; no downstream AI call for the risky answer');
+    assert.equal(store.sessionTurns(s.id).length, 0, 'no confirmed answer revision');
+    assert.ok(!JSON.stringify(store._maps, (_, v) => v instanceof Map ? [...v] : v).includes(FAMILY_TRANSCRIPT));
+    assert.ok(!JSON.stringify(blocked.data).includes('국회의원'));
+    const clean = await s.cmd('turn.text', { text: GOOD }); assert.notEqual(clean.data.action, 'blind_blocked');
+  }, { GROQ_WHISPER_KEY: 'fake-test-key', GROQ_BASE_URL: 'https://stub.groq.test/v1', GROQ_LIVE_ACK: 'true', GROQ_REAL_DATA_ACK: 'true' }
+));
 
 test('blind gate: generic high-school memory keeps its exact revision and reaches the provider; a later school identifier still blocks', () => run(stub(), async (ctx, store) => {
   const p = await setup(ctx, store);
@@ -107,7 +129,7 @@ test('blind gate: sensitive answers (name, high school, family job, loose spelli
   await approve(ctx, p);
   const s = await startGeneral(ctx, p);
   const before = ctx.calls.length;
-  const risky = ['제 이름은 김민수입니다. 실험을 했습니다.', '한빛고등학교에서 동아리를 했습니다.', '어머니가 의사라서 관심이 생겼습니다.', '저는 과 학 고 에서 실험했습니다.', '제 수험번호는 12345678입니다.'];
+  const risky = ['제 이름은 김민수입니다. 실험을 했습니다.', '한빛고등학교에서 동아리를 했습니다.', '어머니가 의사라서 관심이 생겼습니다.', '저는 과 학 고 에서 실험했습니다.', '제 수험번호는 12345678입니다.', FAMILY_TRANSCRIPT];
   for (const text of risky) {
     const r = await s.cmd('turn.text', { text });
     assert.equal(r.status, 202, JSON.stringify(r.data));
@@ -128,7 +150,7 @@ test('blind gate: sensitive answers (name, high school, family job, loose spelli
 
 test('blind gate: events keep only codes/labels (no raw text); report summarises counts; application text is masked before analysis and returns the masked kinds only', () => run(stub(), async (ctx, store) => {
   const p = await setup(ctx, store, { application_text: '아버지가 대학 교수이고 저는 과학고에서 효소 실험을 직접 설계해 활성을 비교했습니다. 그 결과 온도에 따라 활성이 달라졌습니다.' });
-  assert.ok(p.privacy.masked.some((m) => m.label === '가족의 직업·직장') && p.privacy.masked.some((m) => m.label === '학교 유형'), JSON.stringify(p.privacy));
+  assert.ok(p.privacy.masked.some((m) => m.label === '부모·친인척의 직업·직장') && p.privacy.masked.some((m) => m.label === '학교 유형'), JSON.stringify(p.privacy));
   assert.ok(!JSON.stringify(p.privacy).includes('교수'), 'only kinds, no raw phrase');
   const claims = (await ctx.g(`/api/v1/profiles/${p.id}/claims`)).data.claims;
   assert.ok(claims.length && claims.every((c) => !/교수|과학고/.test(c.quote)), 'claim quotes come from the masked text');
@@ -138,7 +160,7 @@ test('blind gate: events keep only codes/labels (no raw text); report summarises
   for (let i = 0; i < 6; i++) await s.cmd('turn.text', { text: GOOD });
   const rep = (await ctx.g(`/api/v1/sessions/${s.id}/report`)).data;
   assert.equal(rep.blind_safety.blocked_count, 1);
-  assert.deepEqual(rep.blind_safety.events[0].labels, ['가족의 직업·직장']);
+  assert.deepEqual(rep.blind_safety.events[0].labels, ['부모·친인척의 직업·직장']);
   assert.ok(!/변호사/.test(JSON.stringify(rep.blind_safety)));
   const ev = store.getSession('u-a', s.id) || null; void ev;
 }));

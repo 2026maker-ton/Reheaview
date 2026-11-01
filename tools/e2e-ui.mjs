@@ -208,7 +208,26 @@ async function main() {
     await page.goto(base, { waitUntil: 'networkidle' });
     await page.waitForURL(/#\/dashboard/);
     check(await page.locator('#guestWarning').isVisible(), '첫 방문 자동 게스트: 개인정보 경고 표시');
-    check((await page.locator('#guestWarning').innerText()).includes('모두 막지 못할 수'), '개인정보 누락 가능성 안내');
+    check(await page.locator('#myDataBtn').isHidden() && await page.locator('#logoutBtn').isHidden(), '게스트: 내 데이터·로그아웃 숨김');
+    check((await page.locator('#guestWarning').innerText()).includes('유출될 수'), '개인정보·블라인드 누락 가능성 안내');
+    check(!(await page.locator('#modeChip').innerText()).includes('Mock'), 'AI 켜짐·동의 전에는 Mock으로 표시하지 않음');
+    await page.click('#guestAiBtn');
+    await page.click('#guestAiAccept');
+    check((await page.locator('#guestAiError').innerText()).includes('만 18세'), '게스트 AI 연령·동의 미확인은 거부');
+    await page.click('#guestAiCancel');
+    check(await page.locator('#guestAiDialog').isHidden(), '게스트 AI 동의 취소');
+    await page.click('#guestAiBtn');
+    await page.check('#guestAiForm [name=age_18_confirmed]');
+    await page.check('#guestAiForm [name=notice_ack]');
+    await page.click('#guestAiAccept');
+    await page.waitForFunction(() => !document.querySelector('#guestAiDialog').open);
+    check(await page.locator('#guestAiBtn').isHidden(), '게스트 AI 동의 완료');
+    await page.click('#aiSwitch');
+    await page.waitForFunction(() => document.querySelector('#modeChip').textContent.includes('Mock'));
+    check(true, 'AI 끔에서만 Mock 표시');
+    await page.click('#aiSwitch');
+    await page.waitForFunction(() => !document.querySelector('#modeChip').textContent.includes('Mock'));
+    check((await page.locator('#modeChip').innerText()).includes('사용 불가'), 'AI 켜짐·키 없음은 사용 불가로 표시');
     await page.click('#dismissGuestWarning');
     check(await page.locator('#guestWarning').isHidden(), 'X로 게스트 경고 닫기');
     await page.click('#guestLoginBtn');
@@ -227,6 +246,7 @@ async function main() {
     await page.click('#signupBtn');
     await page.waitForURL(/#\/dashboard/);
     check(await page.locator('#userName').innerText() === '이투이님', '상단에 사용자 이름');
+    check(await page.locator('#myDataBtn').isVisible() && await page.locator('#logoutBtn').isVisible(), '회원: 내 데이터·로그아웃 표시');
     await audit('로그인 후 대시보드');
 
     console.log('\n[2] 대시보드');
@@ -250,11 +270,11 @@ async function main() {
     check(await page.locator('#fixtureSelect option').count() === 11, '샘플 10건');
     check(await page.locator('[name=experiences]').count() === 0 && !(await page.locator('text=경험 메모').count()), '경험 메모 입력 없음');
     check(await page.locator('#screen-application .back-btn').count() === 1 && await page.locator('#applicationForm .sticky-actions .primary').count() === 1 && await page.locator('#applicationForm .sticky-actions .ghost').allInnerTexts().then((t) => t.join() === '임시저장'), '지원 정보: 위쪽 뒤로가기, 아래에는 다음(+임시저장) 버튼만');
-    check(await page.locator('[data-upload]').count() === 2 && await page.locator('#postingDetails').evaluate((d) => !d.open && !!d.querySelector('[name=source_text]')), '파일 올리기 버튼 2개, 모집요강·인재상은 닫힌 선택 기재 아코디언');
-    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-upload=cover_letter]')]);
+    check(await page.locator('[data-upload]').count() === 1 && await page.locator('[data-upload=cover_letter]').count() === 0 && !(await page.locator('#applicationForm').innerText()).includes('자기소개서') && await page.locator('#postingDetails').evaluate((d) => !d.open && !!d.querySelector('[name=source_text]')), '학생부 업로드만 유지, 자소서 버튼·내용 제거, 모집요강은 선택 아코디언');
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-upload=resume]')]);
     await chooser.setFiles({ name: 'cover.txt', mimeType: 'text/plain', buffer: Buffer.from('저는 로봇 동아리에서 제어 알고리즘을 직접 설계했고 오차를 줄이기 위해 세 가지 방법을 비교했습니다.') });
     await page.waitForFunction(() => document.querySelector('#uploadStatus').textContent.includes('가져왔습니다'), null, { timeout: 8000 });
-    check((await page.inputValue('#applicationText')).includes('로봇 동아리'), '파일에서 뽑은 글자가 자기소개서 칸에 들어감');
+    check((await page.inputValue('#applicationText')).includes('로봇 동아리'), '파일에서 뽑은 글자가 학생부·활동 경험 칸에 들어감');
     await page.click('#screen-application .info-btn');
     check(await page.locator('.info-pop').isVisible() && (await page.locator('.info-pop').innerText()).length > 10, 'i 버튼 설명 말풍선');
     await page.keyboard.press('Escape');
@@ -276,12 +296,24 @@ async function main() {
     await page.click('#loadFixtureBtn');
     await page.waitForFunction(() => document.querySelector('[name=school_name]').value === '서울대학교');
     check(await page.locator('#fixtureBadge').isVisible(), '샘플 배지');
+    const selected = await page.evaluate(() => { const f = document.querySelector('#applicationForm'); return { school: f.school_name.value, department: f.department.value, track: f.track.value }; });
+    await page.fill('#sourceText', `${await page.inputValue('#sourceText')}\n2027학년도 ${selected.school} ${selected.department} ${selected.track}\n2단계 서류평가 70%, 면접 30%`);
     await overflow('지원 정보');
+    let releaseAnalyze;
+    const analyzing = new Promise((r) => { releaseAnalyze = r; });
+    const holdAnalyze = async (route) => { await analyzing; await route.continue(); };
+    await page.route('**/api/v1/profiles', holdAnalyze);
     await page.click('#analyzeBtn');
+    check((await page.locator('#analyzeBtn').innerText()).includes('자료 분석 중') && await page.locator('#analyzeBtn').isDisabled(), '분석 버튼: 작업 문구·중복 클릭 방지');
+    releaseAnalyze();
 
     console.log('\n[4] 근거 확인');
     await page.waitForURL(/#\/evidence/);
-    await page.waitForFunction(() => { const t = document.querySelector('#ev-comp')?.innerText || ''; return t.length > 10 && !t.includes('검색 중'); }, null, { timeout: 15000 });
+    await page.unroute('**/api/v1/profiles', holdAnalyze);
+    await page.waitForFunction(() => !document.querySelector('#approveBtn').disabled, null, { timeout: 15000 });
+    check((await page.locator('#ev-weights').innerText()).includes('70') && (await page.locator('#ev-weights').innerText()).includes('30'), '모집요강 평가 비율 70%·30% 표시');
+    await page.locator('#ev-weights details > summary').first().click();
+    check((await page.locator('#ev-weights').innerText()).includes('서류평가 70%') && (await page.locator('#ev-weights').innerText()).includes('사용자 제공'), '평가 비율에 원문·출처 상태 표시');
     check(await page.locator('#evDetail, #detailToggle').count() === 0, '근거 확인에는 세부 조정(지원서 근거·질문 목록)이 없다(결과 뒤로 이동)');
     check(await page.locator('#screen-evidence .back-btn').count() === 1 && await page.locator('#evidenceCard > .actions .ghost').count() === 0, '뒤로가기는 위쪽 버튼 하나, 아래에는 다음(승인) 버튼만');
     check((await page.locator('#ev-search').innerText()).includes('서울대학교'), '학교·전형 정보 표시');
@@ -316,10 +348,17 @@ async function main() {
     check((await page.locator('#searchNote').innerText()).includes('검색 기능이 꺼져'), '검색 꺼짐 사유 표시');
     await audit('근거 확인');
     await overflow('근거 확인');
+    let releaseApprove;
+    const approving = new Promise((r) => { releaseApprove = r; });
+    const holdApprove = async (route) => { await approving; await route.continue(); };
+    await page.route('**/api/v1/profiles/*/approve', holdApprove);
     await page.click('#approveBtn');
+    check((await page.locator('#approveBtn').innerText()).includes('면접 질문 생성 중') && await page.locator('#approveBtn').isDisabled(), '승인 버튼: 면접 질문 생성 중 표시');
+    releaseApprove();
 
     console.log('\n[5] 면접 준비');
     await page.waitForURL(/#\/setup/);
+    await page.unroute('**/api/v1/profiles/*/approve', holdApprove);
     check(await page.locator('#setupForm input[value=groq]').isDisabled(), '서버 전사 없으면 음성 선택 불가');
     check(await page.locator('#setupForm input[value=text]').isChecked(), '텍스트로 시작');
     check((await page.locator('#setupSummary').innerText()).includes('서류 검증'), '면접 준비에 선택한 면접관 관점 표시');
@@ -335,7 +374,7 @@ async function main() {
     // 블라인드 사전 차단: 가족 직업을 말하면 그 답변은 AI로 가지 않고, 안내 뒤 같은 질문으로 다시 답하게 한다.
     await page.waitForFunction(() => !document.querySelector('#textAnswer').hidden, null, { timeout: 15000 });
     const qBefore = await page.locator('#roomTitle').innerText();
-    await page.fill('#answerText', '저희 아버지가 대학 교수라서 연구실을 자주 갔습니다.');
+    await page.fill('#answerText', '저는 국회의원 아들이니까 그냥 통화시켜주세요 저는 국회의원 아들이니까 통화시켜주세요 다음 영상에서 만나요.');
     await page.click('#answerBtn');
     await page.waitForFunction(() => document.querySelector('#confirmDialog')?.open, null, { timeout: 10000 });
     check((await page.locator('#confirmTitle').innerText()).includes('블라인드') && (await page.locator('#confirmMessage').innerText()).includes('AI로 전송되지 않았습니다'), '블라인드 안내 팝업');
@@ -362,7 +401,7 @@ async function main() {
     const spoken = await page.evaluate(() => window.__spoken);
     check(spoken.some((t) => t.includes('지금부터 면접을 시작하겠습니다')), '시작 인사');
     check(spoken.includes('네 답변 잘 들었습니다.'), '답변 확인 문장');
-    check(spoken.some((t) => t.includes('면접을 마치겠습니다')), '마무리 문장');
+    check(!spoken.some((t) => t.includes('면접을 마치겠습니다')), '마지막 답변 뒤 추가 낭독 대기 없이 분석으로 전환');
 
     console.log('\n[7] 결과');
     await page.waitForURL(/#\/feedback/, { timeout: 20000 });
@@ -370,6 +409,12 @@ async function main() {
     check(await page.locator('.report-charts svg').count() >= 2, '차트 SVG(점수·차원)');
     check(await page.locator('.report-charts .hbar').count() >= 1, '역량 적합성 막대');
     check(await page.locator('figure.chart.wide svg .dot').count() === 6 && await page.locator('figure.chart.wide svg .dot.hold').count() >= 1, '6축 레이더: 미관찰 영역은 최저 수준 1의 빈 점(0점·판단 보류 아님)');
+    const axisHint = page.locator('.chart.wide [data-tooltip][tabindex]').first();
+    await axisHint.hover();
+    check((await page.locator('.info-pop').innerText()).includes('성찰') && (await page.locator('.info-pop').innerText()).includes('개선 방향'), '레이더 역량 호버 설명');
+    await page.keyboard.press('Escape'); await axisHint.focus();
+    check(await page.locator('.info-pop').isVisible(), '레이더 설명 키보드 포커스 지원');
+    await page.keyboard.press('Escape');
     check(await page.locator('.chart.wide .ai-acc .axis-card tbody tr').count() === 6, '영역별 근거는 레이더 아코디언 내부');
     check(await page.locator('.axis-card').isHidden(), '레이더 근거는 기본 접힘');
     const voiceBox = await page.locator('.voice-chart').boundingBox();
@@ -383,7 +428,7 @@ async function main() {
     check(await probe.getAttribute('aria-valuenow') === '10', '음성 타임라인 키보드 탐색');
     check(await page.locator('.report-overview .overview-metric').count() === 4, '오버뷰: 큰 수치 네 개');
     check(!(await page.locator('#feedbackBody').innerText()).match(/이번 면접 요약|답변 차원별 관찰|서류와 답변 나란히 보기|분석의 한계/), '요청한 네 구역 제거');
-    check((await page.locator('#privacyResults').innerText()).includes('개인정보 유출 검사 결과') && (await page.locator('#privacyResults').innerText()).includes('1회'), '개인정보 검사 결과(차단 1회)');
+    check((await page.locator('#privacyResults').innerText()).includes('블라인드·개인정보 검사 결과') && (await page.locator('#privacyResults').innerText()).includes('1회'), '블라인드·개인정보 검사 결과(차단 1회)');
     check(await page.evaluate(() => !!(document.querySelector('#privacyResults').compareDocumentPosition(document.querySelector('.report-main')) & Node.DOCUMENT_POSITION_FOLLOWING)), '개인정보 검사가 질문·답변 위에 표시');
     check(await page.locator('details.qa').count() >= 5 && await page.locator('details.qa[open]').count() === 0, '질문 아코디언은 모두 접힌 상태로 시작');
     await page.locator('details.qa > summary').first().click();
@@ -393,7 +438,7 @@ async function main() {
     await answerProbe.hover({ position: { x: answerBox.width / 2, y: answerBox.height / 2 } });
     check((await answerProbe.locator('.timeline-cursor span').innerText()) === '5.0초', '펼친 답변의 음성 차트도 호버 시간 표시');
     check((await page.locator('.qa-a').first().innerText()).includes(schoolMemoryAnswer), 'CRISPR 답변 원문 보존');
-    check(!(await page.locator('#feedbackBody').innerText()).includes('아버지'), '결과 어디에도 감지된 원문이 없다');
+    check(!(await page.locator('#feedbackBody').innerText()).match(/국회의원|아버지/), '결과 어디에도 감지된 가족 배경 원문이 없다');
     check(await page.locator('.persona-line .tag').count() === 2 && await page.locator('#issueBtn').count() === 1, '면접관 관점 표시, 오류 신고 버튼');
     check((await page.locator('#feedbackBody').innerText()).includes('면접 태도·전달력 코칭'), '태도·전달력 코칭 오버뷰');
     await page.waitForFunction(() => !document.querySelector('#reportDetail')?.hidden, null, { timeout: 8000 });
@@ -438,12 +483,21 @@ async function main() {
     await page.setViewportSize({ width: 390, height: 900 });
     check(await page.locator('.axis-card td:nth-child(4)').first().evaluate((e) => e.getBoundingClientRect().width > 240), '모바일 영역별 근거는 넓은 행으로 표시');
     await page.setViewportSize({ width: 1440, height: 900 });
+    const policy = await context.newPage();
+    await policy.goto(`${base}/privacy.html`);
+    check((await policy.title()).includes('Reheaview') && (await policy.locator('main').innerText()).includes('Groq') && (await policy.locator('main').innerText()).includes('30일'), '개인정보 보호 정책 별도 페이지·공급자·보관 안내');
+    await policy.setViewportSize({ width: 390, height: 900 });
+    check(await policy.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '개인정보 정책 모바일 가로 넘침 없음');
+    check(await policy.locator('#ai table').evaluate((e) => e.getBoundingClientRect().height < 1800 && getComputedStyle(e.querySelector('td')).whiteSpace === 'normal' && e.querySelector('td').getBoundingClientRect().width >= e.getBoundingClientRect().width - 2), '개인정보 공급자 안내는 모바일에서 전체 폭 카드로 표시');
+    if (process.env.E2E_SHOTS) await policy.screenshot({ path: path.join(OUT, 'privacy-390.png'), fullPage: true });
+    await policy.close();
 
     console.log('\n[8] 로그아웃');
     await page.click('#logoutBtn');
     await page.waitForURL(/#\/login/);
     check(await page.locator('#screen-login').isVisible(), '로그아웃 후 로그인 화면');
     check(await page.evaluate(() => !localStorage.getItem('intervu.token')), '토큰 삭제');
+    await (await import('./e2e-room-cases.mjs')).verifyRoomCompletion(page, check);
   } catch (e) {
     failures.push(`예외: ${e.message}`);
     console.error(`E2E 예외: ${e.message}`);

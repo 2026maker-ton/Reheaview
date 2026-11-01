@@ -1,4 +1,4 @@
-/* Intervu — 9화면 UI. 조용한 연습실: 종이 질감 라이트 테마 + 잉크 네이비 + 코칭 그린. */
+/* Reheaview — 9화면 UI. 조용한 연습실: 종이 질감 라이트 테마 + 잉크 네이비 + 코칭 그린. */
 :root {
   --paper: #f6f8fb;
   --paper-2: #edf2f7;
@@ -24,6 +24,45 @@
   --mono: "IBM Plex Mono", "D2Coding", ui-monospace, monospace;
   --maxw: 1180px;
 }
+
+.privacy-link { font-size: .8rem; font-weight: 600; }
+.policy-page { max-width: 900px; margin: 0 auto; padding: 36px 20px; }
+.policy-page .card { margin: 24px 0; scroll-margin-top: 24px; }
+.policy-page h2 { margin-bottom: 16px; }
+.policy-page td, .policy-page th { vertical-align: top; }
+.policy-nav { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 18px 0; border-block: 1px solid var(--line); }
+.policy-footer { padding: 16px 24px 40px; text-align: center; }
+.weight-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 16px; margin: 16px 0; }
+.weight-item { border-left: 3px solid var(--green); padding: 4px 16px; }
+.weight-item > strong { display: block; font: 600 2.4rem var(--mono); line-height: 1.2; color: var(--green-deep); }
+.weight-item small { font-size: 1rem; margin-left: 4px; }
+.weight-item details { font-size: .85rem; }
+.weight-item q { display: block; margin-block: 10px; }
+.processing-card { min-height: 280px; display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+.processing-card p { max-width: 35em; color: var(--muted); }
+.processing-mark { width: 32px; height: 32px; border: 3px solid var(--line); border-top-color: var(--green); border-radius: 50%; margin-bottom: 24px; animation: processing-spin 1s linear infinite; }
+@keyframes processing-spin { to { transform: rotate(360deg); } }
+.chart-hint { cursor: help; }
+.chart-hint:focus-visible { outline: 2px solid var(--green); }
+.policy-page .ev-table { table-layout: fixed; }
+.policy-page .ev-table tbody th { width: 20%; overflow-wrap: anywhere; }
+.policy-page .ev-table td:nth-child(2) { width: 30%; white-space: normal; }
+.policy-page .ev-table td { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .policy-page .ev-table, .policy-page .ev-table tbody, #ev-comp .ev-table, #ev-comp .ev-table tbody { display: block; }
+  .policy-page .ev-table thead, #ev-comp .ev-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .policy-page .ev-table tr { display: block; padding-block: 16px; border-top: 1px solid var(--line); }
+  .policy-page .ev-table tbody th, .policy-page .ev-table td { display: block; width: auto; padding: 6px 0; border: 0; white-space: normal; }
+  .policy-page .ev-table td:nth-child(2) { width: auto; white-space: normal; }
+  .policy-page .ev-table tbody th { font-size: 1rem; }
+  .policy-page .ev-table td::before { display: block; font-weight: 700; color: var(--muted); font-size: .8rem; margin-bottom: 4px; }
+  .policy-page .ev-table td:nth-child(2)::before { content: '전송·목적'; }
+  .policy-page .ev-table td:nth-child(3)::before { content: '공급자 보관 안내'; }
+  #ev-comp .ev-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding-block: 12px; border-top: 1px solid var(--line); }
+  #ev-comp .ev-table tbody th, #ev-comp .ev-table td { width: auto; padding: 6px 0; border: 0; }
+  #ev-comp .ev-table td:last-child { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { .processing-mark { animation: none; border-style: dotted; } }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }

@@ -16,7 +16,7 @@ export function validatePersonaConfig(cfg) {
   for (const k of top) if (!(k in cfg)) bad(`missing ${k}`);
   for (const k of Object.keys(cfg)) if (!top.includes(k)) bad(`unknown top-level key ${k}`);
   if (cfg.schema_version !== '2.0.0') bad('schema_version');
-  if (cfg.product !== 'Intervu') bad('product');
+  if (cfg.product !== 'Reheaview') bad('product');
   if (cfg.locale !== 'ko-KR') bad('locale');
   if (!['proposed_configuration', 'active_configuration', 'deprecated'].includes(cfg.status)) bad('status');
   if (!isStr(cfg.purpose)) bad('purpose');

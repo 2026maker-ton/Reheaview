@@ -225,7 +225,7 @@ test('retry: same approved plan runs again as attempt 2 (no redesign), each repo
     assert.ok(a2.rep.transcript.every((t) => t.risk.level === 'none' && !t.answer_text.includes('과학고')), 'blocked answer was never stored');
     assert.equal(a2.rep.blind_safety.blocked_count, a2.seen.filter((x) => x.action === 'blind_blocked').length);
     assert.ok(a2.rep.blind_safety.blocked_count >= 1);
-    assert.ok(a2.rep.blind_safety.events[0].labels.includes('가족의 직업·직장'));
+    assert.ok(a2.rep.blind_safety.events[0].labels.includes('부모·친인척의 직업·직장'));
     assert.ok(!JSON.stringify(a2.rep.blind_safety).includes('과학고'), 'safety summary has no raw text');
     assert.equal(a1.rep.blind_safety.blocked_count, 0);
     assert.ok(a1.rep.transcript.every((t) => t.risk.level === 'none'));

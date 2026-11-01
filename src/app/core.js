@@ -15,6 +15,7 @@ import { createAuthHandlers } from './handlers/auth.js';
 import { createGate } from './gate.js';
 import { createProfileHandlers } from './handlers/profiles.js';
 import { createConsentHandlers } from './handlers/consents.js';
+import { guestAiReady } from '../domain/guest-policy.js';
 import { createSessionHandlers } from './handlers/sessions.js';
 import { createCommandHandlers } from './handlers/commands.js';
 import { createFeedbackHandlers } from './handlers/feedback.js';
@@ -48,7 +49,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const killSet = new Set(killList);
   const isKilled = (p) => aiOff || killSet.has(p);
   const aiSwitch = { off: () => aiOff, set: (v) => { aiOff = !!v; } };
-  // 게스트는 항상 발급 가능하다. 공급자 키·동의·합성 fixture 여부와 무관하게 서버 컨텍스트에서 외부 AI를 막는다.
+  // 게스트는 항상 발급 가능하다. 실제 AI는 별도의 연령·처리 동의와 공급자 게이트를 통과해야 한다.
   const guestAllowed = () => true;
   // 공급자 라우팅·게이트·호출 래퍼(WP-B1, 04 §1~3). 외부 전송 허용 여부는 서버 상태(ctx)로만 정한다.
   // 요청 본문의 synthetic/free_test 값은 어떤 경로에서도 전송 근거가 아니다.
@@ -64,7 +65,8 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const requestContext = (owner, extra = {}) => {
     const consent = store.getConsent?.(owner) || null;
     const guest = store.getUser?.(owner)?.guest === true;
-    return { owner, synthetic: extra.forceRealData === true ? false : syntheticTraffic === true || extra.synthetic === true, forceMock: guest || !!extra.forceMock, consent: !!consent, adult: !guest && !!(consent?.age_18_confirmed || consent?.age_19_confirmed) };
+    const ready = !guest || guestAiReady(consent);
+    return { owner, synthetic: extra.forceRealData === true ? false : syntheticTraffic === true || extra.synthetic === true, forceMock: !ready || !!extra.forceMock, consent: ready && !!consent, adult: ready && !!(consent?.age_18_confirmed || consent?.age_19_confirmed) };
   };
   // 서버 기본 컨텍스트에서 실제로 외부 호출이 열려 있는 공급자(없으면 mock): 상태 표시·구 호환용.
   const providerName = ['dialogue.next', 'claims.extract'].map((op) => caller.plan(op, requestContext(null))).find((p) => p.live)?.provider || 'mock';

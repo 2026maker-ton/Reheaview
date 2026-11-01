@@ -1,3 +1,5 @@
+import { ensureGuestAiConsent } from '../core/guest-ai.js';
+import { busyButton } from '../core/busy.js';
 // 면접 준비: 답변 방식(음성/텍스트)·마이크 확인·시작. 면접 형태는 일반 면접 5단계로 고정이다.
 import { $, $$, esc, setError, uuid } from '../core/format.js';
 import { refreshModeChip } from '../core/providers.js';
@@ -71,8 +73,9 @@ $('#setupForm')?.addEventListener('submit', async (e) => {
   if (!$('#blindAck').checked) return setError('#setupError', '시작 전 확인 항목에 체크해 주세요.');
   const btn = $('#startBtn');
   setError('#setupError', '');
-  btn.disabled = true;
+  const done = busyButton(btn, '면접 준비 중...');
   try {
+    if (!(await ensureGuestAiConsent())) return;
     const input_mode = new FormData(e.target).get('input_mode') || 'text';
     state.lastInputMode = input_mode; // 결과 화면의 "다시 면접 보기"가 같은 방식으로 시작한다
     const s = await api('/sessions', { method: 'POST', idempotent: true, body: { profile_version_id: state.versionId, interview_format: 'general', input_mode } });
@@ -83,6 +86,8 @@ $('#setupForm')?.addEventListener('submit', async (e) => {
   } catch (err) {
     setError('#setupError', err.message);
   } finally {
-    btn.disabled = false;
+    done();
   }
 });
+
+window.addEventListener('guest-ai-ready', () => { if (location.hash === '#/setup') refreshSetup(); });

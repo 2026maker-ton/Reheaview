@@ -53,7 +53,7 @@ export async function resumeSession(id) {
   try {
     const s = await api(`/sessions/${encodeURIComponent(id)}`);
     state.session = { id: s.id, version: s.version, state: s.state };
-    if (s.state === 'completed') { await loadReport(); return true; }
+    if (s.state === 'completed' || s.state === 'completing') { await loadReport(); return true; }
     if (!OPEN_STATES.includes(s.state)) throw new Error('이어갈 수 없는 상태의 면접입니다.');
     if (s.state === 'ready' || s.state === 'paused') {
       const r = await api(`/sessions/${s.id}/commands`, {

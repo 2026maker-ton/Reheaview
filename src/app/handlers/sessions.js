@@ -26,7 +26,7 @@ export function createSessionHandlers(d) {
     let institution = null;
     if (body.profile_version_id) {
       version = store.getVersion(body.profile_version_id);
-      if (!version || version.status !== 'approved') return err('conflict', '승인된 공고 버전이 필요합니다.', 409);
+      if (!version || version.status !== 'approved') return err('conflict', '승인된 근거 버전이 필요합니다. 먼저 근거를 승인해 주세요.', 409);
       const p = store.getProfile(owner, version.profile_id);
       if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
       if (new Date(p.expires_at).getTime() < Date.now()) return err('conflict', '만료된 프로필입니다.', 409);
@@ -185,7 +185,7 @@ export function createSessionHandlers(d) {
     if (!f.enabled) return err('not_implemented', '특수 면접은 아직 준비 중입니다. 일반 면접으로 진행해 주세요.', 422);
     if (!body.profile_version_id) return err('validation_error', '학교·학과 근거를 승인한 뒤 면접을 시작할 수 있습니다.', 422);
     const version = store.getVersion(body.profile_version_id);
-    if (!version || version.status !== 'approved') return err('conflict', '승인된 공고 버전이 필요합니다.', 409);
+    if (!version || version.status !== 'approved') return err('conflict', '승인된 근거 버전이 필요합니다. 먼저 근거를 승인해 주세요.', 409);
     const p = store.getProfile(owner, version.profile_id);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     if (new Date(p.expires_at).getTime() < Date.now()) return err('conflict', '만료된 프로필입니다.', 409);

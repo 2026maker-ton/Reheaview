@@ -1,3 +1,5 @@
+import { ensureGuestAiConsent } from '../core/guest-ai.js';
+import { busyButton } from '../core/busy.js';
 import { $, esc, setError } from '../core/format.js';
 import { toast } from '../core/toast.js';
 import { api } from '../core/api.js';
@@ -26,7 +28,7 @@ async function fillFixtureList() {
 window.addEventListener('hashchange', () => { if (location.hash === '#/application') fillFixtureList(); });
 if (location.hash === '#/application') fillFixtureList();
 
-// ---- 파일 올리기(txt·pdf·docx): 서버가 글자만 뽑아 주면 자기소개서·학생부 칸 뒤에 붙인다(원본은 저장하지 않는다) ----
+// 학생부 파일에서 추출한 글을 경험 자료 칸에 붙인다.
 const MAX_FILE = 5 * 1024 * 1024;
 let uploadKind = null;
 document.querySelectorAll('[data-upload]').forEach((b) => b.addEventListener('click', () => { uploadKind = b.dataset.upload; $('#fileInput').value = ''; $('#fileInput').click(); }));
@@ -43,7 +45,7 @@ $('#fileInput')?.addEventListener('change', async (e) => {
     const area = $('#applicationText');
     area.value = [area.value.trim(), out.text.trim()].filter(Boolean).join('\n\n');
     if (fixture) setFixture(null);
-    status.textContent = `${uploadKind === 'resume' ? '학생부' : '자기소개서'} 파일 "${file.name}"에서 ${out.char_count}자를 가져왔습니다.${out.truncated ? ' (너무 길어 일부만 가져왔습니다)' : ''}${out.warnings?.length ? ' ' + out.warnings.join(' ') : ''}`;
+    status.textContent = `학생부 파일 "${file.name}"에서 ${out.char_count}자를 가져왔습니다.${out.truncated ? ' (너무 길어 일부만 가져왔습니다)' : ''}${out.warnings?.length ? ' ' + out.warnings.join(' ') : ''}`;
   } catch (err) {
     status.textContent = '';
     setError('#applicationError', err.message);
@@ -87,8 +89,9 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
   // 뒤로 갔다 와서 입력을 바꾸지 않았으면 이미 분석한 결과를 그대로 쓴다(다시 만들지·분석하지 않는다).
   const key = JSON.stringify(payload);
   if (state.profile?.id && state.appKey === key) { go('evidence'); return; }
-  btn.disabled = true;
+  const done = busyButton(btn, '자료 분석 중...');
   try {
+    if (!(await ensureGuestAiConsent())) return;
     const created = await api('/profiles', { method: 'POST', idempotent: true, body: payload });
     state.profile = created;
     state.versionId = created.version_id;
@@ -107,7 +110,7 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
     $('#applicationError')?.setAttribute('tabindex', '-1');
     $('#applicationError')?.focus();
   } finally {
-    btn.disabled = false;
+    done();
   }
 });
 

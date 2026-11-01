@@ -61,6 +61,8 @@ export function createCommandHandlers(d) {
       store.commands.set(key, { request_hash: hash, response });
       return { status: 202, body: response };
     };
+    if (type === 'session.finish' && s.state === 'completed') return accept({ command_id: commandId, state: 'completed', version: s.version, report_status: store.evaluations.get(s.id)?.status || 'pending' });
+    if (s.finish_requested && type !== 'session.finish') return err('conflict', '면접 종료를 처리하고 있습니다.', 409);
 
     if (type === 'session.start') {
       if (s.state === 'paused') return err('conflict', '일시정지 상태에서는 재개를 사용하세요.', 409);
@@ -427,7 +429,11 @@ export function createCommandHandlers(d) {
     const followupReason = followupReasonFor(text);
     const ruleNext = () => { const f = canFollow ? ruleFollowup(q.stage, text) : null; return f ? { action: 'followup', utterance: f, turn_score: ruleTurnScore(text) } : { action: 'next', turn_score: ruleTurnScore(text) }; };
     let decision; let trace;
-    if (s.llm_calls >= config.budgets.maxLlmCallsPerSession - 3) {
+    if (q.stage === 'closing' || s.q_index === s.questions.length - 1) {
+      // 마지막 답변은 대화 판단을 다시 호출하지 않고 바로 최종 분석으로 넘긴다.
+      decision = { action: 'next', turn_score: ruleTurnScore(text) };
+      trace = { operation: 'dialogue.next', provider: 'mock', mode: 'blocked', reason: 'interview_finished', model_alias: 'rule-based', latency_ms: null };
+    } else if (s.llm_calls >= config.budgets.maxLlmCallsPerSession - 3) {
       decision = ruleNext(); trace = { operation: 'dialogue.next', provider: 'mock', mode: 'blocked', reason: 'budget_cap', model_alias: 'rule-based', latency_ms: null };
     } else {
       const res = await caller.call('dialogue.next', {
@@ -446,6 +452,10 @@ export function createCommandHandlers(d) {
     if (decision.action === 'followup' && !canFollow) decision = { ...decision, action: 'next' };
     turn.turn_score = { ...decision.turn_score, source: trace.mode === 'live' && decision.score_source !== 'rule' ? 'llm' : 'rule' };
     const base = { command_id: commandId, turn_id: turn.id, revision: rev.revision, ack: SPOKEN.ack, cut_off: cutOff, provider: trace.mode === 'live' ? trace.provider : 'mock', provider_trace: [trace], llm_calls: s.llm_calls };
+    if (s.finish_requested) {
+      // 이미 확정 중이던 답변은 보존하되, 종료 뒤 도착한 모델의 질문은 발행하지 않는다.
+      return accept({ ...base, state: 'completing', version: s.version, action: 'finish', closing: SPOKEN.closing });
+    }
     if (decision.action === 'followup') {
       store.updateSession(s, { awaiting_followup: true, current_followup: String(decision.utterance).trim(), followups_used: s.followups_used + 1, question_started_at: now() });
       store.pushEvent(s.id, 'assistant.message', { utterance: s.current_followup, action: 'ask_followup', stage: q.stage, followup_reason: followupReason });
@@ -491,7 +501,7 @@ export function createCommandHandlers(d) {
       store.pushEvent(s.id, 'session.snapshot', { note: 'discussion_user_turns_below_4' });
     }
     void it0;
-    store.updateSession(s, { state: 'completing' });
+    store.updateSession(s, { state: 'completing', finish_requested: true, awaiting_followup: false, current_followup: null });
     const turns = store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user');
     const turnsWithText = [];
     let allSynthetic = turns.length > 0;
@@ -569,7 +579,7 @@ export function createCommandHandlers(d) {
       pushTrace(s, evalTrace);
       if (['live', 'fallback'].includes(evalTrace.mode)) s.llm_calls += 1;
       // 기관 연결: 공개 요구사항과 답변의 근거 연결 (평가 점수와 별도 레이어)
-      let institution_link = { mode: 'general', note: '공고 연결 없이 일반 역량 기준으로만 분석합니다.', links: [], uncovered: [] };
+      let institution_link = { mode: 'general', note: '모집요강·공고 연결 없이 일반 역량 기준으로만 분석합니다.', links: [], uncovered: [] };
       let institution_profile = null;
       if (s.profile_version_id) {
         const ver = store.getVersion(s.profile_version_id);
@@ -625,7 +635,7 @@ export function createCommandHandlers(d) {
         const ai_comments = { fit_comment: String(cm.fit_comment).trim(), dimension_comment: String(cm.dimension_comment).trim(), provider: cmtRes.trace.mode === 'live' ? cmtRes.trace.provider : 'rule_based', live: cmtRes.live === true, validated: false, version: COMMENT_PROMPT_VERSION };
         return { format: 'general', transcript, axes, ai_comments,
           // 블라인드 안전 결과(설계서 §10.5-5): 민감 원문은 싣지 않고 종류·처리 결과만.
-          blind_safety: { filter_version: FILTER_VERSION, blocked_count: events.length, events: events.map((e) => ({ level: e.level, labels: e.labels, action: e.action, at: e.at })), masked_answers: transcript.filter((t) => t.risk?.level && t.risk.level !== 'none').length, note: '감지된 표현은 AI로 보내기 전에 막았고, 결과 화면에는 원문을 싣지 않습니다. 대학별 공식 규정이 확인되지 않아 Intervu의 보수적 기본 정책을 적용했습니다.' },
+          blind_safety: { filter_version: FILTER_VERSION, blocked_count: events.length, events: events.map((e) => ({ level: e.level, labels: e.labels, action: e.action, at: e.at })), masked_answers: transcript.filter((t) => t.risk?.level && t.risk.level !== 'none').length, note: '대입 블라인드 면접 기준(성명·수험번호·출신 고교·부모 및 친인척의 직업 등 사회적 지위)에 해당하는 표현은 AI로 보내기 전에 막았고, 결과 화면에는 원문을 싣지 않습니다. 대학별 공식 규정이 확인되지 않아 Reheaview의 보수적 기본 정책을 적용했습니다.' },
           personas: { ids: s.persona_ids || [], names: (s.persona_ids || []).map(personaName), notice: '가상의 면접관 관점입니다. 실제 대학의 면접관·교수·입학사정관이 아니며 평가 기준·합격 여부와 무관합니다.' }, competency_fit, score_label: '면접관 실시간 참고 점수 · 검증 전', fit_label: '역량 키워드 일치 기반 참고 지표 · 검증 전' };
       };
       const generalPart = general ? await buildGeneralPart() : null;

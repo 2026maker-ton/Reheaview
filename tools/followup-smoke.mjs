@@ -1,4 +1,6 @@
-// 사용자 승인 실호출 검증: 합성 사례만, 실제 HTTP AI 요청 최대 10회(재시도 포함).
+import { createLiveTestBudget } from './live-test-budget.mjs';
+globalThis.fetch = createLiveTestBudget(globalThis.fetch).fetch;
+// 사용자 승인 실호출 검증: 합성 사례만, 실제 HTTP AI 요청 최대 9회(재시도 포함).
 import fs from 'node:fs';
 import { createApp } from '../src/server.js';
 import { loadDotEnv } from '../src/env.js';
@@ -11,7 +13,7 @@ const requests = [];
 const expected = new URL(loaded.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').origin;
 globalThis.fetch = async (url, options) => {
   if (new URL(url).origin !== expected || !String(url).includes(':generateContent')) throw new Error('Unexpected outbound endpoint');
-  if (requests.length >= 10) throw Object.assign(new Error('Ten-call cap reached'), { invalid: true });
+  if (requests.length >= 9) throw Object.assign(new Error('Nine-call cap reached'), { invalid: true });
   const entry = { number: requests.length + 1, status: null }; requests.push(entry);
   const response = await realFetch(url, options); entry.status = response.status; return response;
 };
@@ -49,7 +51,7 @@ try {
       rows.push({ stage, followup_answer: true, action: follow.action, trace: follow.provider_trace });
     }
   }
-  const result = { date: new Date().toISOString(), synthetic_only: true, hard_cap: 10, actual_http_ai_requests: requests.length, requests, rows };
+  const result = { date: new Date().toISOString(), synthetic_only: true, hard_cap: 9, actual_http_ai_requests: requests.length, requests, rows };
   fs.mkdirSync('docs/verification', { recursive: true });
   fs.writeFileSync('docs/verification/2026-11-01-followup-smoke.json', JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result, null, 2));

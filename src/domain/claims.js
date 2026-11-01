@@ -1,4 +1,4 @@
-// 지원자 주장 검증 슬라이스(PROJECT.md §2.4, P0-3): 자기소개서·지원서 문장에서
+// 지원자 주장 검증 슬라이스(PROJECT.md §2.4, P0-3): 학생부·활동 자료 문장에서
 // "지원자가 경험·성과를 주장한 문장"과 그 문장에서 빠진 정보(공백)를 결정적 규칙으로 찾고,
 // 그 문장을 그대로 인용하는 검증 질문을 만든다.
 // - 모델을 쓰지 않으므로 외부 전송이 없고, 없는 사실·수치를 만들 수 없다(질문은 고정 템플릿+원문 인용).
@@ -138,8 +138,8 @@ export function buildClaimQuestions(claims = [], { max = 2 } = {}) {
     const asks = GAP_ORDER.filter((g) => c.gaps.includes(g)).slice(0, 2);
     const quote = cut(oneLine(c.quote), DISPLAY_QUOTE_CP);
     const text = asks.length
-      ? `자기소개서에 “${quote}”라고 쓰셨습니다. 다음을 구분해 설명해 주세요: ${asks.map((g) => GAP_ASK[g]).join(' / ')}.`
-      : `자기소개서에 “${quote}”라고 쓰셨습니다. 그 경험에서 본인이 내린 판단 한 가지와 그 근거를 설명해 주세요.`;
+      ? `학생부·활동 자료에 “${quote}”라고 쓰셨습니다. 다음을 구분해 설명해 주세요: ${asks.map((g) => GAP_ASK[g]).join(' / ')}.`
+      : `학생부·활동 자료에 “${quote}”라고 쓰셨습니다. 그 경험에서 본인이 내린 판단 한 가지와 그 근거를 설명해 주세요.`;
     const primary = asks.length ? GAP_COMPETENCY[asks[0]] : 'reasoning';
     return {
       id: `claim-q-${n + 1}`,

@@ -1,3 +1,4 @@
+import { ensureGuestAiConsent } from '../core/guest-ai.js';
 // 화면 상단 AI 기능 스위치(입장 잠금 뒤에서만 동작, 비밀번호 없음). 끄면 서버가 모든 외부 AI 호출을 막고 규칙 기반 기본 동작만 남긴다.
 import { $ } from '../core/format.js';
 import { api } from '../core/api.js';
@@ -22,6 +23,7 @@ export async function initAiSwitch() {
   b.addEventListener('click', async () => {
     const next = b.getAttribute('aria-checked') !== 'true';
     try {
+      if (next && !(await ensureGuestAiConsent({ turningOn: true }))) return;
       const r = await api('/ai-switch', { method: 'POST', auth: false, body: { on: next } });
       paint(r.on);
       toast(r.on ? 'AI 기능을 켰습니다.' : 'AI 기능을 껐습니다. 기본 동작만 가능합니다.');

@@ -1,3 +1,5 @@
+import { ensureGuestAiConsent } from '../core/guest-ai.js';
+import { busyButton } from '../core/busy.js';
 // 근거 확인: 핵심 역량·면접 형태(렌치로 직접 수정), 학교·전형 검색, 지원서 주장, 5단계 질문 계획. 서버 텍스트는 모두 esc().
 import { $, esc, fmtDate, setError } from '../core/format.js';
 import { toast } from '../core/toast.js';
@@ -6,7 +8,7 @@ import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { dialog } from '../core/dialog.js';
 import { Stepper, StateBadge, EvidenceQuote } from '../ui/index.js';
-import { InfoBtn } from '../ui/info.js';
+import { InfoBtn, PrivacyLink } from '../ui/info.js';
 import { FIXED, STAGE_LABEL, reasonCopy } from '../core/copy.js';
 
 const GAP = { role: '본인 역할', result: '관찰된 결과', reason: '판단 기준', number: '수치·기록' };
@@ -14,11 +16,11 @@ const FORMATS = [['general', '일반 면접'], ['pressure', '압박 면접 (준�
 const WRENCH = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
 let ctx = { loading: true, busy: false, searching: false, detail: null, claims: null, plan: null };
 
-const SECTION_INFO = { comp: 'evidence.comp', format: 'evidence.format', search: 'evidence.search', persona: 'evidence.persona', privacy: 'evidence.privacy' };
+const SECTION_INFO = { comp: 'evidence.comp', format: 'evidence.format', search: 'evidence.search', persona: 'evidence.persona' };
 const section = (id, title, body, tools = '') => `<section class="ev-sec" id="ev-${id}"><div class="ev-head"><h3>${esc(title)}${SECTION_INFO[id] ? InfoBtn(SECTION_INFO[id]) : ''}</h3>${tools}</div><div class="ev-body">${body}</div></section>`;
 const REFRESH = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
 // 같은 자료는 저장된 분석 결과를 재사용한다(비용 절감). 이 버튼은 저장본을 무시하고 다시 분석한다.
-const refreshBtn = (id, label) => `<button class="icon-btn" type="button" id="${id}" aria-label="${label}" title="${label}"${ctx.busy || ctx.searching ? ' disabled' : ''}>${REFRESH}</button>`;
+const refreshBtn = (id, label) => `<button class="${ctx.busy ? 'ghost small' : 'icon-btn'}" type="button" id="${id}" aria-label="${ctx.busy ? '학교 자료 분석 중...' : label}" title="${label}"${ctx.busy || ctx.searching ? ' disabled' : ''}>${ctx.busy ? '학교 자료 분석 중...' : REFRESH}</button>`;
 const wrench = (id) => `<button class="icon-btn" type="button" id="${id}" aria-label="직접 수정" title="직접 수정">${WRENCH}</button>`;
 
 // 핵심 역량·인재상을 한 표로: 직접 입력한 항목이 먼저, 그 뒤 학교 자료에서 뽑은 인재상·역량(원문 인용 포함). 질문 계획의 '학업·전공 적합성' 단계가 이 표의 항목을 쓴다.
@@ -29,7 +31,7 @@ function competencies(inst) {
     ...(sa.talent_traits || []).map((t) => ({ label: t.label, src: StateBadge('자료 원문', 'ok'), quote: t.quote !== t.label ? t.quote : '' })),
   ];
   // 분석·검색이 도는 동안에는 "검색 중…", 끝났는데도 없으면 직접 등록을 권한다.
-  if (!rows.length && (ctx.busy || ctx.loading || ctx.searching)) return '<p class="fine" role="status">검색 중…</p>';
+  if (!rows.length && (ctx.busy || ctx.loading || ctx.searching)) return `<p class="fine" role="status">${ctx.busy ? '학교 자료 분석 중...' : '불러오는 중...'}</p>`;
   if (!rows.length) return '<p class="missing" role="status">인재상·역량을 찾지 못했습니다. 직접 등록해 주세요. <button class="ghost small" type="button" id="compAddBtn">직접 등록</button></p>';
   return `<table class="ev-table"><thead><tr><th scope="col">역량·인재상</th><th scope="col">출처</th><th scope="col">원문 근거</th></tr></thead><tbody>${rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td>${r.src}</td><td>${r.quote ? `<q>${esc(r.quote)}</q>` : '<span class="meta">—</span>'}</td></tr>`).join('')}</tbody></table>`;
 }
@@ -38,6 +40,16 @@ function formatBody(inst) {
   const custom = inst?.custom_interview_format;
   const quotes = (inst?.school_analysis?.interview_format || []).map((f) => `<li>${EvidenceQuote({ quote: f.quote })}</li>`).join('');
   return `<p><span class="val">연습 형태: 일반 면접</span> ${custom ? StateBadge('직접 선택', 'info') : ''}</p>${quotes ? `<ul class="claims">${quotes}</ul>` : ''}`;
+}
+
+function weightsBody(inst) {
+  const sa = inst?.school_analysis;
+  const weights = sa?.evaluation_weights;
+  if (ctx.busy || ctx.loading) return '<p class="fine" role="status">평가 비율 확인 중...</p>';
+  if (!weights?.items?.length) return `<p class="meta">${esc(weights?.reason || '해당 전형의 평가 비율은 아직 확인되지 않았습니다.')}</p><p class="fine">학교·학과·전형이 적힌 모집요강을 입력하거나 아래 학교·전형 검색에서 확인해 주세요.</p>`;
+  const source = (id) => sa.sources?.find((s) => s.id === id);
+  return `<p class="meta">${esc([weights.target.school, weights.target.department, weights.target.track].filter(Boolean).join(' · '))}</p>
+    <div class="weight-grid">${weights.items.map((w) => { const s = source(w.source_id); return `<div class="weight-item"><p class="meta">${esc([w.year && `${w.year}학년도`, w.stage].filter(Boolean).join(' · ') || '단계·학년도 미명시')}</p><strong>${w.percent}<small>%</small></strong><p>${esc(w.label)}</p><details><summary>원문·출처</summary><q>${esc(w.quote)}</q><p class="fine">${esc(s?.status === 'official_verified' ? '수집한 공식 자료' : s?.status === 'demo_fixture' ? '데모 예시 · 공식 정보 아님' : '사용자 제공 자료 · 공식 확인 전')} · ${esc(s?.title || '')}${s?.url ? ` · <a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">출처 열기</a>` : ''}</p></details></div>`; }).join('')}</div><p class="fine">모집요강에 적힌 비율입니다. 연습 점수의 가중치로 사용하지 않습니다. 최신 공식 요강을 확인해 주세요.</p>`;
 }
 
 // 면접관 관점(가상 역할): 고른 조합과 이유, 쓸 수 없는 관점은 이유와 함께 회색으로 보인다. 질문 설계·꼬리질문의 초점과 말투만 바꾸며 평가 기준·점수는 그대로다.
@@ -58,10 +70,10 @@ function personaBody() {
 // 개인정보·블라인드 사전 검사 결과: 지원서에서 AI로 보내기 전에 가린 표현의 종류만 알린다(원문은 싣지 않는다).
 function privacyBody() {
   const pv = state.profile?.privacy;
-  if (!pv) return '<p class="meta">이 지원서의 검사 결과는 새로 분석할 때 표시됩니다.</p>';
+  if (!pv) return '<p class="meta">이 학생부·활동 자료의 블라인드·개인정보 검사 결과는 새로 분석할 때 표시됩니다.</p>';
   return pv.masked?.length
-    ? `<p><strong>AI로 보내기 전에 가린 표현</strong>: ${pv.masked.map((m) => `<span class="tag">${esc(m.label)}</span>`).join(' ')}</p><p class="fine">원문은 저장하지 않았고, 질문 근거에는 가린 글만 쓰입니다.</p>`
-    : '<p>가릴 표현을 찾지 못했습니다. 면접 중 답변도 같은 검사를 거쳐, 걸리면 AI로 보내지 않고 다시 답하게 합니다.</p>';
+    ? `<p><strong>AI로 보내기 전에 가린 표현</strong>: ${pv.masked.map((m) => `<span class="tag">${esc(m.label)}</span>`).join(' ')}</p><p class="fine">개인정보·출신 고교·부모 및 친인척의 직업 등 사회적 지위를 드러내는 원문은 저장하지 않았고, 질문 근거에는 가린 글만 쓰입니다.</p>`
+    : '<p>개인정보나 출신 고교·부모의 직업 등 사회적 지위를 드러내는 표현을 찾지 못했습니다. 면접 중 답변도 같은 블라인드 검사를 거쳐, 감지되면 AI로 보내지 않고 다시 답하게 합니다.</p>';
 }
 
 // 검색 결과는 약관상 수정 없이 그대로 보여 준다. 방금 검색한 결과만 출처 링크·추천 검색어와 함께, 지난 기록은 텍스트만(링크는 저장하지 않음).
@@ -89,15 +101,16 @@ function paint() {
       ${section('comp', '핵심 역량·인재상', competencies(inst), `${refreshBtn('reanalyzeBtn', '다시 분석')}${wrench('editCompBtn')}`)}
       ${section('format', '면접 형태', formatBody(inst), wrench('editFormatBtn'))}
     </div>
+    ${section('weights', '모집요강 평가 비율', weightsBody(inst))}
     <div class="ev-grid">
       ${section('persona', '면접관 관점', personaBody(), wrench('editPersonaBtn'))}
-      ${section('privacy', '개인정보·블라인드 검사', privacyBody())}
+      ${section('privacy', '개인정보·블라인드 검사', `${privacyBody()}<p class="fine">${PrivacyLink('blind')}</p>`)}
     </div>
     ${section('search', '학교·전형', `<p class="val">${esc([detail.school_name || detail.target_name, detail.department || detail.role, detail.track].filter(Boolean).join(' · '))}</p>${searchBody(inst)}`)}
     ${ctx.needsReapproval ? '<p class="missing" role="status">내용이 바뀌어 다시 승인해야 합니다.</p>' : ''}`;
   const frame = $('#evidenceBody .search-suggestions');
   if (frame) frame.srcdoc = ctx.lastSearch.suggestions_html; // sandbox(스크립트 차단) 안에서만 렌더
-  $('#approveBtn').disabled = !!(ctx.busy || ctx.loading);
+  $('#approveBtn').disabled = !!(ctx.busy || ctx.loading || ctx.approving);
 }
 
 const optional = (path) => api(path).catch(() => null);
@@ -156,18 +169,20 @@ async function saveCustom(body) {
 }
 async function reanalyze() {
   ctx.busy = true; paint();
-  try { await api(`/profiles/${state.profile.id}/school-analysis`, { method: 'POST', idempotent: true, body: { refresh: true } }); await refresh(state.profile.id); } catch (err) { setError('#evidenceError', err.message); }
-  ctx.busy = false; paint();
+  try { if (!(await ensureGuestAiConsent())) return; await api(`/profiles/${state.profile.id}/school-analysis`, { method: 'POST', idempotent: true, body: { refresh: true } }); await refresh(state.profile.id); } catch (err) { setError('#evidenceError', err.message); }
+  finally { ctx.busy = false; paint(); }
 }
 async function runSearch() {
   ctx.searching = true; paint();
   try {
+    if (!(await ensureGuestAiConsent())) return;
     const r = await api(`/profiles/${state.profile.id}/school-search`, { method: 'POST', idempotent: true, body: {} });
     ctx.searching = false;
     if (r.status === 'ok') ctx.lastSearch = r.entry;
     await refresh(state.profile.id);
     if (r.status !== 'ok') { ctx.searchNote = reasonCopy(r.reason); paint(); }
-  } catch (err) { ctx.searching = false; paint(); setError('#evidenceError', err.message); }
+  } catch (err) { setError('#evidenceError', err.message); }
+  finally { ctx.searching = false; paint(); }
 }
 
 $('#evidenceBody')?.addEventListener('click', (e) => {
@@ -182,9 +197,11 @@ $('#evidenceBody')?.addEventListener('click', (e) => {
 $('#approveBtn')?.addEventListener('click', async () => {
   if (ctx.busy || ctx.loading || !state.profile) return;
   const btn = $('#approveBtn');
-  btn.disabled = true;
+  ctx.approving = true;
+  const done = busyButton(btn, '면접 질문 생성 중...');
   setError('#evidenceError', '');
   try {
+    if (!(await ensureGuestAiConsent())) return;
     const ap = await api(`/profiles/${state.profile.id}/approve`, { method: 'POST', idempotent: true, body: { version_id: state.versionId, persona_combination: comboId() || undefined } });
     state.approved = true;
     state.personaNames = ap.personas?.names || [];
@@ -195,7 +212,7 @@ $('#approveBtn')?.addEventListener('click', async () => {
   } catch (err) {
     setError('#evidenceError', err.message);
   } finally {
-    btn.disabled = false;
+    ctx.approving = false; done();
   }
 });
 

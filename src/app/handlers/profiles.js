@@ -1,5 +1,6 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID } from '../crypto.js';
+import { admissionWeights } from '../../domain/admission-weights.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from '../../domain/pii.js';
 import { extractApplicantClaims, extractDocClaims, mergeModelClaims } from '../../domain/claims.js';
 import { planGeneralQuestions, publicPlanItem } from '../../domain/plan.js';
@@ -24,7 +25,7 @@ export function createProfileHandlers(d) {
     // 프로필 API 속도 제한(사양 §15): 계정당 분당2회/일10회 기본값
     const counts = store.recordRate(owner, 'profile');
     if (counts.minute > config.profileRate.perMinute || counts.day > config.profileRate.perDay) {
-      return err('quota_exceeded', '공고 분석 요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { minute: counts.minute, day: counts.day, limit_minute: config.profileRate.perMinute, limit_day: config.profileRate.perDay } });
+      return err('quota_exceeded', '자료 분석 요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { minute: counts.minute, day: counts.day, limit_minute: config.profileRate.perMinute, limit_day: config.profileRate.perDay } });
     }
     // 합성 판정은 서버가 fixture 해시로만 한다(클라이언트 synthetic/free_test 값은 읽지 않음).
     const synthetic = await isSyntheticProfileBody(body, { demoFixtures: config.demoFixtures });
@@ -32,10 +33,10 @@ export function createProfileHandlers(d) {
     // 고입(미성년) 여정은 2026-10-31부터 새 프로필을 받지 않는다(서비스 대상 만 18세 이상). 서버 fixture 샘플은 레거시 테스트용으로 허용.
     if (normalizeOrgType(body.org_type || 'university') === 'highschool' && !synthetic) return err('validation_error', '고입 여정은 지원하지 않습니다. 대입으로 진행해 주세요.', 422, { requestId });
     const source = String(body.source_text || '');
-    if (source.length > 20000) return err('validation_error', '공고 본문은 20,000자 이하여야 합니다.', 422, { requestId });
+    if (source.length > 20000) return err('validation_error', '모집요강·공고 본문은 20,000자 이하여야 합니다.', 422, { requestId });
     const application = String(body.application_text || '');
-    if (application.length > 20000) return err('validation_error', '자기소개서·지원서 본문은 20,000자 이하여야 합니다.', 422, { requestId });
-    if (!body.target_name && !body.role && !source && !application.trim()) return err('validation_error', '기관/직무/공고/지원서 중 하나는 필요합니다.', 422, { requestId });
+    if (application.length > 20000) return err('validation_error', '학생부·활동 자료 본문은 20,000자 이하여야 합니다.', 422, { requestId });
+    if (!body.target_name && !body.role && !source && !application.trim()) return err('validation_error', '학교(기관)·학과(직무)·모집요강·학생부 자료 중 하나는 필요합니다.', 422, { requestId });
     // 기관 구분: company·public·university·highschool (기존 general 호환)
     // 학교 입력(school_name/department/track)은 기존 target_name/role로 정규화해 기존 로직과 호환한다(기본 기관 구분은 대입).
     if (body.school_name) body.target_name = String(body.school_name);
@@ -50,12 +51,12 @@ export function createProfileHandlers(d) {
     // 지원서 본문은 마스킹본만 저장·분석한다(원문 PII 비보관). 이 슬라이스는 규칙 기반이라 외부로 전송하지 않는다.
     // 블라인드 사전 차단(설계서 §3.5): 학교·가족 배경을 짐작하게 하는 표현은 AI로 가기 전에 가리고, 가릴 수 없거나 필터가 실패하면 분석을 멈춘다(fail-closed).
     const san = sanitizeForAi(maskPii(application));
-    if (san.unmasked || san.error) return err('validation_error', '개인정보 검사를 끝내지 못했거나 가릴 수 없는 표현이 있어 분석을 멈췄습니다. 지원서에서 출신 학교 유형·가족 직업 표현을 고쳐 다시 시도해 주세요.', 422, { requestId });
+    if (san.unmasked || san.error) return err('validation_error', '블라인드·개인정보 검사를 끝내지 못했거나 가릴 수 없는 표현이 있어 분석을 멈췄습니다. 학생부·활동 자료에서 출신 고교나 부모·친인척의 직업 등 사회적 지위를 드러내는 표현을 고쳐 다시 시도해 주세요.', 422, { requestId });
     const maskedApplication = san.text.normalize('NFC');
     const { profile, version_id } = store.createProfile(owner, { ...body, application_text: maskedApplication, org_type: orgType, synthetic });
     // 사용자 제공 기관 URL(출처 메타): SSRF 방어 검증 후 기록만 한다 (fetch 없음)
     const providedSources = [];
-    const rawSources = Array.isArray(body.sources) ? body.sources.slice(0, 10) : (body.source_url ? [{ url: body.source_url, title: '지원 공고 URL' }] : []);
+    const rawSources = Array.isArray(body.sources) ? body.sources.slice(0, 10) : (body.source_url ? [{ url: body.source_url, title: '모집요강·입학처 URL' }] : []);
     for (const rs of rawSources) {
       try {
         const ns = normalizeSource(rs, {});
@@ -421,8 +422,15 @@ export function createProfileHandlers(d) {
     if (mode === 'gemini' && !verified.talent_traits.length) verified.talent_traits = verifyAnalysis(ruleBasedAnalysis(segments), segments).talent_traits;
     const { dropped, ...cats } = verified;
     // analysis_mode 'gemini'는 구 이름: 모델 분석이면 공급자와 무관하게 이 값이고, 실제 공급자는 analysis_provider다.
+    // 공개 모집요강의 대상 범위는 가리기 전 학교명으로 대조한다. 이 본문은 외부 AI 입력에 넣지 않는다.
+    // 표시할 비율 인용에 개인정보 후보가 있으면 그 항목은 버린다. 좌표는 사용자 제공 원문의 위치다.
+    const weightSegments = segments.map((s) => s.id === 'pasted' ? { ...s, text: String(override ?? p.source_text ?? '').normalize('NFC').trim().slice(0, 20000) } : s);
+    const evaluationWeights = admissionWeights(weightSegments, p);
+    evaluationWeights.items = evaluationWeights.items.filter((w) => maskPii(w.quote) === w.quote);
+    if (!evaluationWeights.items.length) { evaluationWeights.status = 'unconfirmed'; evaluationWeights.reason ||= '표시할 수 있는 평가 비율 원문을 확인하지 못했습니다.'; }
     const analysis = {
       ...cats,
+      evaluation_weights: evaluationWeights,
       unconfirmed: buildUnconfirmed(cats, mode === 'gemini' ? res.value.unconfirmed : []),
       sources: segments.map((s) => { const r = used.find((u) => u.id === s.id); return r ? { id: r.id, url: r.url, title: r.title, kind: r.kind, status: r.status, retrieved_at: r.retrieved_at, confirmed_at: t, published_at: r.published_at || null } : { id: s.id, url: null, title: s.title, kind: 'user', status: 'user_supplied', retrieved_at: t, confirmed_at: t, published_at: null }; }),
       analysis_mode: mode, analysis_provider: res.trace.mode === 'live' ? res.trace.provider : 'rule', analyzed_at: t, provider_trace: [res.trace],
@@ -438,7 +446,7 @@ export function createProfileHandlers(d) {
     const p = store.getProfile(owner, profileId);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const inst = store.getInstitution(profileId);
-    if (!inst) return err('not_found', '기관 분석이 없습니다. 먼저 공고를 분석하세요.', 404);
+    if (!inst) return err('not_found', '학교·기관 분석이 없습니다. 먼저 지원 자료를 분석해 주세요.', 404);
     return { status: 200, body: { profile_id: profileId, status: inst.status, approved_at: inst.approved_at || null, institution: inst.profile, sources: store.listSources(profileId) } };
   }
 
@@ -496,7 +504,7 @@ export function createProfileHandlers(d) {
     const p = store.getProfile(owner, profileId);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const row = store.getInstitution(profileId);
-    if (!row) return err('not_found', '기관 분석이 없습니다.', 404);
+    if (!row) return err('not_found', '학교·기관 분석이 없습니다.', 404);
     const inst = { ...row.profile };
     if (body.competencies !== undefined) {
       if (!Array.isArray(body.competencies) || body.competencies.length > 8) return err('validation_error', '역량은 최대 8개까지 입력할 수 있습니다.', 422);
@@ -524,7 +532,7 @@ export function createProfileHandlers(d) {
     const p = store.getProfile(owner, profileId);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const row = store.getInstitution(profileId);
-    if (!row) return err('not_found', '기관 분석이 없습니다.', 404);
+    if (!row) return err('not_found', '학교·기관 분석이 없습니다.', 404);
     if (!p.school_name && !p.target_name) return err('validation_error', '학교명이 필요합니다.', 422);
     const ctx = requestContext(owner, { synthetic: p.synthetic === true });
     const planned = caller.plan('school.search', ctx);

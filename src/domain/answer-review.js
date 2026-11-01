@@ -3,7 +3,8 @@
 
 // 짧은 호칭(형·누나…)은 단어 일부(모형·유형)로 오인하기 쉬워 앞이 한글이 아니고 뒤에 조사가 올 때만 본다. 직업 단어도 "대표적·교사용" 같은 파생어는 제외한다.
 const FAMILY = String.raw`(?<![가-힣])(?:아버지|어머니|아버님|어머님|아빠|엄마|부모님|부모|할아버지|할머니|삼촌|이모|고모|외삼촌|사촌|친척|(?:형|누나|오빠|언니)(?=[이가는은의도께]))`;
-const JOB = String.raw`(?:교수|의사|변호사|판사|검사|교사|선생님|교장|회사|대표|사장|임원|이사|회장|원장|공무원|기자|박사|연구원|사업|CEO|건물주|재벌)(?![적성])`;
+const JOB_WORDS = ['국회의원', '정치인', '지방의원', '시의원', '도의원', '장관', '차관', '교수', '의사', '변호사', '판사', '검사', '교사', '선생님', '교장', '회사', '대표', '사장', '임원', '이사', '회장', '원장', '공무원', '기자', '박사', '연구원', '사업', 'CEO', '건물주', '재벌'];
+const JOB = `(?:${JOB_WORDS.join('|')})(?![적성])`;
 
 // 출신 학교 이름은 "고유 이름 + 학교급"일 때만 본다. "고등학교 때/시절"처럼 학교급만 말하거나
 // "제가 다니던 고등학교"처럼 꾸미는 말이 앞에 오면 특정 학교가 드러나지 않으므로 막지 않는다.
@@ -22,6 +23,13 @@ const SCHOOL_WORD_ENDING = /(?:은|는|을|를|에서|에게|께|까지|부터|�
 const SCHOOL_SEP = String.raw`[\s.·,_-]*`;
 const SCHOOL_GAP = String.raw`[\s.·,_-]+`;
 const spaced = (word) => [...word].join(SCHOOL_SEP);
+// 역방향 가족 관계(국회의원 아들이니까, 의사의 딸입니다). 단순 기사·연구 주제의 '자녀'는 차단하지 않는다.
+const DESCENDANT = ['아들', '딸', '자녀', '자제', '손자', '손녀'];
+const RELATION_END = String.raw`(?:입니다|입니까|이에요|예요|이니까|이니|이라서|이라|이고|이며|이지만|이었|였|인데|인지|이다|이야|이거든|이므로|니까|라서|로서)`;
+const familyJob = `${FAMILY}[^.?!\\n]{0,14}${JOB}|${JOB}[^.?!\\n]{0,6}${FAMILY}|${JOB}\\s*(?:의\\s*)?(?:큰|작은|맏|막내|외동)?\\s*(?:${DESCENDANT.join('|')})${RELATION_END}`;
+const spacedJob = `(?:${JOB_WORDS.map(spaced).join('|')})(?![적성])`;
+const spacedFamily = `(?<![가-힣])(?:${['아버지', '어머니', '아버님', '어머님', '아빠', '엄마', '부모님', '부모', '할아버지', '할머니', '삼촌', '이모', '고모', '외삼촌', '사촌', '친척'].map(spaced).join('|')})`;
+const spacedFamilyJob = `${spacedFamily}[^.?!\\n]{0,14}${spacedJob}|${spacedJob}${SCHOOL_SEP}(?:의${SCHOOL_SEP})?(?:${DESCENDANT.map(spaced).join('|')})${SCHOOL_SEP}${RELATION_END}`;
 const SCHOOL_SPACED_SUFFIX = `(?:${['고등학교', '여자고', '여고'].map(spaced).join('|')})`;
 const SCHOOL_TYPES = ['외고', '외국어고', '과학고', '영재고', '과학영재', '자사고', '자율형사립', '특목고', '국제고', '예술고', '마이스터고'];
 // '과학 고전'의 '고전'을 과학고로 잘라 읽지 않는다. 학교급 연장 또는 조사·경계를 확인한다.
@@ -32,7 +40,7 @@ function isSchoolName(word) {
 }
 
 const RULES = [
-  { id: 'family_job', level: 'high', label: '가족의 직업·직장', re: new RegExp(`${FAMILY}[^.?!\\n]{0,14}${JOB}|${JOB}[^.?!\\n]{0,6}${FAMILY}`, 'g') },
+  { id: 'family_job', level: 'high', label: '부모·친인척의 직업·직장', re: new RegExp(familyJob, 'g'), looseRe: new RegExp(spacedFamilyJob, 'g') },
   {
     id: 'school_name', level: 'high', label: '출신 학교 이름',
     re: new RegExp(String.raw`(?<![가-힣])([가-힣]{2,10})${SCHOOL_SUFFIX}`, 'g'),
@@ -48,7 +56,7 @@ const RULES = [
   },
   { id: 'exam_number', level: 'high', label: '수험번호', re: /수험\s*번호\s*[:은는이가]?\s*\d{4,}|수험\s*번호/g },
   { id: 'own_name', level: 'high', label: '본인 이름', re: /제\s*이름은\s*[가-힣]{2,4}|성함은\s*[가-힣]{2,4}/g },
-  { id: 'social_position', level: 'medium', label: '사회적·경제적 위치', re: /금수저|재벌|부잣집|부자\s*집안|집안이\s*(?:좋|넉넉|어렵)|가정\s*형편|건물주|강남에서|유학파|해외에서\s*자라/g },
+  { id: 'social_position', level: 'medium', label: '사회적·경제적 지위', re: /금수저|재벌|부잣집|부자\s*집안|집안이\s*(?:좋|넉넉|어렵)|가정\s*형편|건물주|강남에서|유학파|해외에서\s*자라/g },
 ];
 
 // text → { level: 'none'|'medium'|'high', categories: [{ id, label, level }], spans: [[start,end],…] } (spans는 서버 내부에서 가림 처리에만 쓴다)
@@ -66,7 +74,7 @@ export function detectBlindRisk(text, { loose = false } = {}) {
       if (r.accept && !r.accept(m)) continue;
       hit = true; spans.push([m.index, m.index + m[0].length]);
     }
-    // 띄어쓰기·기호로 벌어진 이름은 원문에서 위치를 찾을 수 있으므로 가림 구간까지 남긴다.
+    // 띄어쓰기·기호로 벌어진 학교명·가족 직업도 원문 위치를 찾아 가림 구간을 남긴다.
     if (r.looseRe) {
       r.looseRe.lastIndex = 0;
       while ((m = r.looseRe.exec(t))) {

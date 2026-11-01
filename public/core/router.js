@@ -29,7 +29,7 @@ function guard(name) {
   if (name === 'room' && (!state.session || state.session.state === 'completed')) return ['dashboard', '진행 중인 면접이 없습니다.'];
   if (name === 'feedback') {
     if (!state.session) return ['dashboard', '볼 수 있는 결과가 없습니다.'];
-    if (['ready', 'active', 'paused', 'completing'].includes(state.session.state)) return ['room', '면접이 끝나야 결과를 볼 수 있습니다.'];
+    if (['ready', 'active', 'paused'].includes(state.session.state)) return ['room', '면접이 끝나야 결과를 볼 수 있습니다.'];
   }
   return null;
 }
@@ -53,11 +53,11 @@ export function renderScreen(name) {
   if (g) { if (g[1]) { toast(g[1]); announce(g[1]); } go(g[0]); return; }
   state.screen = name;
   if (name !== 'login') persistSaved();
-  document.title = `${TITLES[name] || 'Intervu'} — Intervu`;
+  document.title = `${TITLES[name] || 'Reheaview'} — Reheaview`;
   announce(`${TITLES[name] || name} 화면`);
   SCREENS.forEach((s) => { const el = $(`#screen-${s}`); if (el) el.hidden = s !== name; });
   if (name === 'dashboard') loadRecent();
-  if (name === 'feedback' && state.lastReport) renderReport(state.lastReport);
+  if (name === 'feedback' && state.lastReport && state.session?.state !== 'completing') renderReport(state.lastReport);
   const heading = $(`#screen-${name} h1`);
   if (heading) { heading.setAttribute('tabindex', '-1'); try { heading.focus({ preventScroll: true }); } catch { /* noop */ } }
   window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });

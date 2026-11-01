@@ -4,11 +4,12 @@
 import { detectPii } from '../../domain/pii.js';
 import { readMultipartAudio } from '../body.js';
 import { SIGNUP_NOTICE_VERSION } from './auth.js';
+import { GUEST_AI_NOTICE_VERSION } from '../../domain/guest-policy.js';
 
 export function createSttHandlers(d) {
   const { config, store, err, groq, isKilled, caller, requestContext, checkRate } = d;
   // 음성 전송 고지가 포함된 동의만 인정한다: 구 STT 전용 동의 또는 가입 동의(만 18세 + Groq 전송 고지).
-  const STT_NOTICES = new Set(['stt-groq-2026-10', SIGNUP_NOTICE_VERSION]);
+  const STT_NOTICES = new Set(['stt-groq-2026-10', SIGNUP_NOTICE_VERSION, GUEST_AI_NOTICE_VERSION]);
   const realAudioContext = (owner, extra = {}) => {
     const record = store.getConsent?.(owner);
     const ctx = requestContext(owner, { ...extra, forceRealData: true });

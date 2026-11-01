@@ -1,4 +1,4 @@
-# Intervu — Instructions for every coding agent
+# Reheaview — Instructions for every coding agent
 
 **Mandatory: Read the root `PROJECT.md` before inspecting or editing product code.** It is the canonical product source of truth. If missing or unreadable, stop product modifications and report the blocker.
 
@@ -17,6 +17,7 @@
 - Do not send real applicant data to a free/unapproved AI tier, and do not let client-controlled `synthetic` flags bypass this. Enforce provider/age restrictions, server-only secrets, SSRF and prompt-injection defenses, ownership, deletion and budget caps.
 - Never quietly switch to a paid provider or mark a Mock as live AI.
 - Prefer minimal safe changes with failure-case tests. Do not remove existing safety invariants to make a demo appear functional.
+- Test with Mock/stubs by default (0 real external AI calls). Any live verification must stay below 10 actual outbound AI HTTP requests: at most 9 in the entire task execution, across all tools/providers, including retries, fallback models, STT and search. Count before sending, stop when exhausted, and report the actual count. Do not raise this test cap or restart tools to reset it. This is a testing constraint, not the production interview budget.
 
 ## At the end of EACH execution
 

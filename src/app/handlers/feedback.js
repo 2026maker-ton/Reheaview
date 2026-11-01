@@ -64,7 +64,7 @@ export function createFeedbackHandlers(d) {
     const comment = buildBlindContext(maskRisk(text, detectBlindRisk(text).spans));
     const id = randomUUID();
     store.appeals.set(id, { id, owner_id: owner, kind: 'issue', type: body.type, session_id: body.session_id || null, comment, status: 'received', resolution_code: null, created_at: now(), resolved_at: null, used_for_training: false });
-    return { status: 201, body: { appeal_id: id, state: 'received', comment_preview: comment, note: '신고 내용은 개인정보를 가린 뒤 저장했고 모델 학습에 쓰지 않습니다.' } };
+    return { status: 201, body: { appeal_id: id, state: 'received', comment_preview: comment, note: '신고 내용은 개인정보·블라인드 표현을 가린 뒤 저장했고 모델 학습에 쓰지 않습니다.' } };
   }
 
   return { addRevision, createAppeal, getAppeal, createIssueReport };

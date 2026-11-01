@@ -1,6 +1,7 @@
 // 이메일+비밀번호 로그인(2026-10-31). 대상은 만 18세 이상: 가입 때 연령 확인·Groq 음성 전송 고지 동의를 함께 기록한다.
 // 비밀번호·해시·토큰 원문은 응답·로그에 넣지 않는다. 서버는 토큰의 SHA-256만 저장한다.
 import { hashPassword, verifyPassword, randomToken, sha256Hex, randomUUID } from '../crypto.js';
+import { guestAiReady } from '../../domain/guest-policy.js';
 
 export const SIGNUP_NOTICE_VERSION = 'signup-2026-10-31';
 const TOKEN_TTL_MS = 7 * 864e5;
@@ -19,7 +20,7 @@ export function createAuthHandlers(d) {
     store.putAuthSession(await sha256Hex(token), { owner, expires_at: Date.now() + TOKEN_TTL_MS, created_at: now() });
     return token;
   }
-  const me = (u) => ({ id: u.id, email: u.guest ? null : u.email, name: u.name, ...(u.guest ? { guest: true } : {}) });
+  const me = (u) => ({ id: u.id, email: u.guest ? null : u.email, name: u.name, ...(u.guest ? { guest: true, ai_consent: guestAiReady(store.getConsent(u.id)) } : {}) });
 
   async function signup(body, ip) {
     const email = String(body?.email || '').trim().toLowerCase();
@@ -60,7 +61,7 @@ export function createAuthHandlers(d) {
     return u ? { status: 200, body: me(u) } : { status: 200, body: { id: owner, email: null, name: null } };
   }
 
-  // 가입 없이 게스트 체험(공급자 설정과 무관하게 Mock). 이메일·비밀번호 없는 임시 계정이며, 만 18세 확인 기록을 남기지 않아 외부 AI로는 나가지 않는다.
+  // 이메일·비밀번호 없는 게스트 계정. AI 이용 동의 전에는 외부 전송이 차단되며, 별도 동의 API로 활성화한다.
   const mode = () => ({ guest_allowed: !!guestAllowed?.() });
   async function guest(ip) {
     if (!guestAllowed?.()) return err('guest_unavailable', '지금은 가입 없이 체험할 수 없습니다. 가입 후 이용해 주세요.', 403);

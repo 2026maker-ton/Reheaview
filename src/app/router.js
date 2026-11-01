@@ -4,6 +4,7 @@ import { randomUUID, sha256Hex } from './crypto.js';
 import { readJsonBody } from './body.js';
 import { createKeyedMutex } from './mutex.js';
 import { err, now } from './util.js';
+import { guestAiReady } from '../domain/guest-policy.js';
 
 // 문서 업로드: 5MB 파일의 base64(~6.99MB)+JSON 여유. 그 외 경로는 기본 1MB 유지(BUG-9).
 const DOCUMENT_BODY_LIMIT = 7_500_000;
@@ -74,6 +75,12 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
       if (!owner) return json(401, err('unauthorized', '인증이 필요합니다.', 401, { requestId }).error);
       if (p === '/api/v1/auth/me' && method === 'GET') return send(h.auth.getMe(owner));
       if (p === '/api/v1/auth/logout' && method === 'POST') return send(await h.auth.logout(bearer(request)));
+      // AI 켜짐 상태에서 미동의 게스트 요청을 조용히 Mock으로 처리하지 않는다.
+      if (method === 'POST' && aiSwitch && !aiSwitch.off() && store.getUser(owner)?.guest
+        && !guestAiReady(store.getConsent(owner))
+        && /^\/api\/v1\/(?:profiles(?:\/[^/]+\/(?:approve|school-analysis|school-search))?|sessions(?:\/[^/]+\/(?:commands|transcriptions))?|practice-attempts)$/.test(p)) {
+        return json(428, err('guest_ai_consent_required', '게스트 AI 이용 전 만 18세 이상 확인과 처리 안내 동의가 필요합니다.', 428).error);
+      }
 
       if (p === '/api/v1/personas' && method === 'GET') return send(h.ops.personas());
       if (p === '/api/v1/metrics' && method === 'GET') return send(await h.ops.metrics(request));
@@ -106,6 +113,13 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
       const run = () => {
         // 같은 세션에 대한 쓰기는 도착 순서대로 직렬 실행한다(명령 인터리빙 방지).
         const sid = write && !isTranscription ? sessionLockKey(method, p) : null;
+        // 종료 의사는 대기 중인 꼬리질문 요청보다 먼저 기록한다. 소유권·본문·멱등 검사를 통과한 요청만 가능하다.
+        if (sid && method === 'POST' && p.endsWith('/commands') && body.type === 'session.finish' && body.command_id) {
+          const session = store.getSession(owner, sid);
+          if (session && ['active', 'paused'].includes(session.state)
+            && !store.commands.has(`${sid}:${body.command_id}`)
+            && (body.expected_version === undefined || body.expected_version === session.version)) session.finish_requested = true;
+        }
         return sid ? mutex.run(sid, () => dispatch(owner, request, url, body)) : dispatch(owner, request, url, body);
       };
       if (!write || isTranscription || isTts) return await run();

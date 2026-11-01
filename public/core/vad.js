@@ -44,10 +44,11 @@ export async function calibrate(mic, ms = 400) {
   return mic.threshold;
 }
 
-// 한 답변 동안의 녹음 구간 관리. onSegment(blob): 발화 뒤 silenceMs 정적이 오면 구간을 끊어 넘긴다.
-export function createCapture(mic, { silenceMs = 30_000, onSegment, onNoSpeech = () => {}, onState = () => {} }) {
+// 최초 무발화는 30초, 발화 후에는 마지막으로 판별된 말소리부터 3초를 기다린다.
+export function createCapture(mic, { silenceMs = 3_000, initialSilenceMs = 30_000, onSegment, onNoSpeech = () => {}, onError = () => {}, onState = () => {} }) {
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
   let rec = null; let chunks = []; let timer = null;
+  let stopPending = null;
   let calibrating = mic.threshold ? null : []; let lastVoice = 0; let startedAt = 0;
   // 잡음(작은 소리·짧은 소리·주기성 없는 소리)은 말로 치지 않는다: 구간에 말이 확인되기 전에는 정적 컷도 전사 전송도 하지 않는다.
   let gate = createSpeechGate(mic.threshold || FLOOR_RMS);
@@ -55,25 +56,30 @@ export function createCapture(mic, { silenceMs = 30_000, onSegment, onNoSpeech =
   const m = { frames: 0, voiced: 0, silenceCount: 0, longestSilence: 0, curSilence: 0, rms: [], periods: [], env: [], flags: [] }; // env·flags: 결과 화면 음량 그래프·구간용 프레임 기록
 
   function startRecorder() {
+    stopPending = null;
     chunks = [];
     rec = new MediaRecorder(mic.stream, mime ? { mimeType: mime } : undefined);
     rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
     rec.start(250);
   }
   function stopRecorder() {
-    return new Promise((resolve) => {
+    if (stopPending) return stopPending;
+    stopPending = new Promise((resolve) => {
       if (!rec || rec.state === 'inactive') return resolve(null);
       rec.onstop = () => resolve(chunks.length ? new Blob(chunks, { type: rec.mimeType || 'audio/webm' }) : null);
       rec.stop();
     });
+    return stopPending;
   }
   async function cut() {
     clearInterval(timer); timer = null;
-    const blob = await stopRecorder();
     onState('processing');
+    const blob = await stopRecorder();
     if (blob) onSegment(blob);
+    else onError(new Error('녹음된 음성을 읽지 못했습니다.'));
   }
   function tick() {
+    if (timer === null) return;
     const b = mic.read();
     let s = 0; for (let i = 0; i < b.length; i++) s += b[i] * b[i];
     const rms = Math.sqrt(s / b.length);
@@ -98,7 +104,7 @@ export function createCapture(mic, { silenceMs = 30_000, onSegment, onNoSpeech =
       m.curSilence += FRAME_MS;
       m.longestSilence = Math.max(m.longestSilence, m.curSilence);
       if (now - lastVoice >= silenceMs) cut();
-    } else if (now - startedAt >= silenceMs) {
+    } else if (now - startedAt >= initialSilenceMs) {
       clearInterval(timer); timer = null;
       // 무발화 녹음은 전사하지 않고 폐기한다. 30초 대기 후에만 다음 질문으로 진행한다.
       stopRecorder().then(() => onNoSpeech());

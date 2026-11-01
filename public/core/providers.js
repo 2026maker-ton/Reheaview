@@ -15,12 +15,14 @@ export async function fetchProviderStatus() {
 }
 
 export async function refreshModeChip() {
-  const st = await fetchProviderStatus();
+  const [st, ai] = await Promise.all([fetchProviderStatus(), api('/ai-switch', { auth: false }).catch(() => null)]);
   const chip = $('#modeChip');
   if (!chip) return st;
   if (!st) { chip.textContent = '서버 연결 실패'; chip.dataset.mode = 'error'; return st; }
-  chip.textContent = MODE_TEXT[st.summary] || MODE_TEXT.mock;
-  chip.dataset.mode = st.summary === 'partial_live' ? 'partial-live' : st.summary === 'live' ? 'live' : 'mock';
-  chip.title = Object.entries(st.operations || {}).map(([op, o]) => `${OP_LABEL[op] || op}: ${o.mode === 'live' ? '실모델' : 'Mock'}`).join(' · ');
+  chip.textContent = ai?.on === false ? MODE_TEXT.mock : state.user?.guest && !state.user.ai_consent ? 'AI 이용 확인 필요' : st.summary === 'mock' ? 'AI 사용 불가 · 설정 확인' : MODE_TEXT[st.summary];
+  chip.dataset.mode = ai?.on !== false && st.summary === 'mock' ? 'blocked' : st.summary === 'partial_live' ? 'partial-live' : st.summary === 'live' ? 'live' : 'mock';
+  chip.title = Object.entries(st.operations || {}).map(([op, o]) => `${OP_LABEL[op] || op}: ${o.mode === 'live' ? '실모델' : ai?.on === false ? 'Mock' : `사용 불가${o.blocked_reason ? ` (${o.blocked_reason})` : ''}`}`).join(' · ');
   return st;
 }
+
+window.addEventListener('guest-ai-ready', () => refreshModeChip());

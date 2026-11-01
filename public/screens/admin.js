@@ -86,7 +86,7 @@ export function addTrendItem(value = '', comment = '', sources = '') {
   row.className = 'trend-item';
   row.innerHTML = `
     <label class="field"><span>역량</span><input class="trend-competency" maxlength="60" value="${esc(value)}" placeholder="예: 문제 해결" /></label>
-    <label class="field"><span>코멘트 (1~2문장)</span><input class="trend-comment" maxlength="200" value="${esc(comment)}" placeholder="예: 최근 공고에서 문제 해결 요구가 늘었습니다." /></label>
+    <label class="field"><span>코멘트 (1~2문장)</span><input class="trend-comment" maxlength="200" value="${esc(comment)}" placeholder="예: 최근 대입 면접에서 전공 연계 탐구 과정 질문이 늘었습니다." /></label>
     <label class="field trend-sources-wrap"><span>출처 (필수, 한 줄에 하나, 최대 3개)</span><textarea class="trend-sources" rows="2" maxlength="1500" placeholder="https://…"></textarea></label>
     <p class="fine trend-item-error" role="alert" hidden></p>
     <button class="ghost small" type="button" data-remove-item>삭제</button>`;

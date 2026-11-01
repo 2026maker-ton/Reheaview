@@ -5,7 +5,7 @@ import { detectPii } from './pii.js';
 import { detectBlindRisk, maskRisk } from './answer-review.js';
 import { randomUUID } from '../app/crypto.js';
 
-export const FILTER_VERSION = 'blind-filter-2026-11-01.1';
+export const FILTER_VERSION = 'blind-filter-2026-11-01.2';
 
 // 직접 식별 정보로 보는 개인정보 종류. 학교(대학교) 이름은 지원 대학을 말하는 것이라 막지 않는다(출신 고교는 blind-risk의 school_name이 본다).
 const PII_LABEL = { name: '본인 이름', phone: '전화번호', email: '이메일', rrn: '주민등록번호', address: '주소', id_number: '수험·식별번호' };
@@ -46,7 +46,7 @@ export function blindEvent({ gate, question_id, action }) {
 
 // 사용자에게 보이는 안내문(학생을 비난하지 않는 문구, 설계서 §4.6). 보수적 기본 정책임을 밝힌다.
 export function blindMessage(gate) {
-  if (gate.level === 'error') return '개인정보 검사를 완료하지 못해 이 답변을 AI로 보내지 않았습니다. 잠시 후 다시 답해 주세요.';
+  if (gate.level === 'error') return '블라인드·개인정보 검사를 완료하지 못해 이 답변을 AI로 보내지 않았습니다. 잠시 후 다시 답해 주세요.';
   const kinds = gate.categories.map((c) => c.label).join('·');
-  return `답변에서 블라인드 면접 기준에 포함될 수 있는 표현(${kinds})이 감지되었습니다. 해당 답변은 아직 AI로 전송되지 않았습니다. 개인을 특정하거나 학교·가정 배경을 짐작하게 하는 내용을 빼고 다시 답해 주세요. (대학별 공식 규정이 확인되지 않아 Intervu의 보수적 기본 정책을 적용했습니다.)`;
+  return `답변에서 블라인드 면접 기준에 포함될 수 있는 표현(${kinds})이 감지되었습니다. 해당 답변은 아직 AI로 전송되지 않았습니다. 본인 개인정보나 출신 고교, 부모·친인척의 직업 등 사회적 지위를 드러내는 내용을 빼고 다시 답해 주세요. (대학별 공식 규정이 확인되지 않아 Reheaview의 보수적 기본 정책을 적용했습니다.)`;
 }

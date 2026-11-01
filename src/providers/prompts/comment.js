@@ -4,7 +4,7 @@ export const COMMENT_PROMPT_VERSION = 'report-comment-v1';
 const OPEN = '<untrusted_data>';
 const CLOSE = '</untrusted_data>';
 const defang = (s, n) => String(s ?? '').slice(0, n).replace(/</g, '＜').replace(/>/g, '＞');
-const BLIND_RULE = '개인정보·블라인드 정보(성명·출신 고교·수험번호·가족 신상·직업·사회경제적 배경)가 입력에 보이면 반복·요약·인용·추론하지 않고, 그것으로 평가를 바꾸지 않습니다.';
+const BLIND_RULE = '개인정보·블라인드 정보(성명·출신 고교·수험번호·부모 및 친인척의 직업·직장·사회경제적 지위)가 입력에 보이면 반복·요약·인용·추론하지 않고, 그것으로 평가를 바꾸지 않습니다.';
 
 export function buildCommentMessages({ turns = [], competencies = [], fit = [], axes = [] }) {
   const system = `당신은 한국어 대학 면접을 마친 뒤 소감을 남기는 면접관입니다. 면접이 끝난 뒤 지원자의 답변 전체를 보고 짧은 한줄평을 남깁니다.

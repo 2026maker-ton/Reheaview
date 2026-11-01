@@ -1,3 +1,5 @@
+import { createLiveTestBudget } from './live-test-budget.mjs';
+globalThis.fetch = createLiveTestBudget(globalThis.fetch).fetch;
 // ElevenLabs 실호출 스모크(WP-B6). 수동 실행 전용, 합성 문장만 사용한다. 에이전트·CI는 개발자 승인 없이 실행하지 않는다.
 // 사용: ELEVENLABS_API_KEY=... ELEVENLABS_BASE_URL=... ELEVENLABS_MODEL=... ELEVENLABS_VOICE_ID=... ELEVENLABS_LIVE_ACK=true node tools/elevenlabs-smoke.mjs
 // [UNVERIFIED] 요청 형태는 어댑터의 가정(text-to-speech/{voice}, xi-api-key)을 따른다. 결과(지연·크기)는 docs/validation-results.md에 "실측"으로 기록한다.

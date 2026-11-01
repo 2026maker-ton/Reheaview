@@ -5,6 +5,29 @@ import { blindGate, sanitizeForAi, blindMessage, blindEvent } from '../../src/do
 import { detectBlindRisk } from '../../src/domain/answer-review.js';
 
 const CRISPR_ANSWER = "네, 제가 생명과학부에 지원하게 된 계기는 고등학교 때 '유전자 가위(CRISPR)' 기술을 주제로 발표를 준비했던 경험 덕분입니다";
+const FAMILY_TRANSCRIPT = '저는 국회의원 아들이니까 그냥 통화시켜주세요 저는 국회의원 아들이니까 통화시켜주세요 다음 영상에서 만나요.';
+
+test('family background: political jobs and child relations block in both directions, including spaced spelling', () => {
+  for (const text of [FAMILY_TRANSCRIPT, '저는 국회의원의 딸입니다.', '나는 국회의원 아들이다.', '국회의원 자녀라서 부탁드립니다.', '장관의 자제입니다.', '의사 아들이라 관심을 가졌습니다.', '장관의 자녀예요.', '아버지가 국회의원이십니다.', '어머니는 정치인입니다.', '저는 국 회 의 원 의 아 들 이니까 통화시켜 주세요.', '부 모 님 은 국 회 의 원 이십니다.']) {
+    const gate = blindGate(text);
+    assert.equal(gate.blocked, true, text);
+    assert.equal(gate.level, 'high', text);
+    assert.ok(gate.categories.some((c) => c.id === 'family_job'), text);
+    const sanitized = sanitizeForAi(text);
+    assert.ok(sanitized.text.includes('[가림]') || sanitized.unmasked, text);
+    assert.ok(!JSON.stringify(blindEvent({ gate })).includes(text), 'audit events cannot include the raw transcript');
+  }
+  const masked = sanitizeForAi(FAMILY_TRANSCRIPT);
+  assert.ok(!masked.text.includes('국회의원') && !masked.text.includes('아들'));
+  assert.equal(masked.unmasked, false);
+});
+
+test('family background: political research topics and ordinary family memories still pass', () => {
+  for (const text of ['국회의원 자녀 특혜 관련 기사를 분석했습니다.', '국회의원 아들에 대한 기사를 읽고 공정성 문제를 토론했습니다.', '저는 국회의원 선거 제도를 주제로 발표했습니다.', '정치인들의 자녀 교육 정책을 비교했습니다.', '장관의 역할을 공부했습니다.', '아들이 과학에 관심이 있어 함께 실험했습니다.', '의사소통 과정에서 서로의 의견을 모았습니다.']) {
+    assert.equal(blindGate(text).blocked, false, text);
+    assert.equal(sanitizeForAi(text).text, text);
+  }
+});
 
 test('school context: generic school memories and academic vocabulary preserve the exact answer', () => {
   for (const text of [CRISPR_ANSWER, '처음 고등학교에서 발표했습니다.', '특히 고등학교 때 실험했습니다.', '먼저 고등학교 때의 경험을 말씀드리겠습니다.', '과학 고전을 읽고 외국어 공부와 비교했습니다.']) {
@@ -75,4 +98,5 @@ test('sanitizeForAi masks risky phrases, reports kinds only, and flags what it c
   assert.equal(r.unmasked, false);
   assert.equal(sanitizeForAi('저는 과 학 고 학생이었습니다').unmasked, true, 'spaced spelling cannot be located -> caller must stop');
   assert.deepEqual(sanitizeForAi('효소 실험을 설계했습니다').masked_categories, []);
+  assert.equal(sanitizeForAi('가족과 함께 주말에 과학관을 방문했습니다').text, '가족과 함께 주말에 과학관을 방문했습니다');
 });

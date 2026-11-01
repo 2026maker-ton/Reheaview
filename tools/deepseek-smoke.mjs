@@ -1,3 +1,5 @@
+import { createLiveTestBudget } from './live-test-budget.mjs';
+globalThis.fetch = createLiveTestBudget(globalThis.fetch).fetch;
 // DeepSeek 실호출 스모크(WP-B2). 수동 실행 전용, 합성 데이터만 사용한다. 에이전트·CI는 개발자 승인 없이 실행하지 않는다.
 // 사용: DEEPSEEK_API_KEY=... DEEPSEEK_BASE_URL=... DEEPSEEK_MODEL=... DEEPSEEK_LIVE_ACK=true node tools/deepseek-smoke.mjs
 // [UNVERIFIED] 요청 형태는 어댑터의 OpenAI 호환 가정을 따른다. 결과(지연·오류)는 docs/validation-results.md에 "실측"으로 기록한다.

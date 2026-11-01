@@ -16,6 +16,19 @@ const reply = (o) => rawReply(JSON.stringify(o));
 const post = (c, body) => c('/api/v1/profiles', { method: 'POST', body, noConsent: true }).then((r) => { if (r.status !== 201) console.log('POSTFAIL', r.status, JSON.stringify(r.data)); return r; });
 const analyze = (c, id, body = {}) => c(`/api/v1/profiles/${id}/school-analysis`, { method: 'POST', body });
 
+test('school weights: match public target before PII masking, keep exact safe quote and never infer missing ratios', () => withApp({}, async (c) => {
+  const r = await c('/api/v1/profiles', { method: 'POST', body: { org_type: 'university', school_name: '서울대학교', department: '자연과학대학 생명과학부', track: '학생부종합전형(수시모집 일반전형)', source_text: '2027학년도 서울대학교 자연과학대학 생명과학부 학생부종합전형(수시모집 일반전형)\n2단계 서류평가 70%, 면접 30%' } });
+  assert.equal(r.status, 201);
+  const a = await analyze(c, r.data.id);
+  assert.equal(a.status, 200);
+  assert.deepEqual(a.data.evaluation_weights.items.map((i) => i.percent), [70, 30]);
+  assert.equal(a.data.evaluation_weights.items[0].quote, '2단계 서류평가 70%, 면접 30%');
+  const detail = await c(`/api/v1/profiles/${r.data.id}`);
+  assert.equal(detail.data.institution.school_analysis.evaluation_weights.status, 'found');
+  const hidden = await analyze(c, r.data.id, { source_text: '2027학년도 서울대학교 자연과학대학 생명과학부 학생부종합전형(수시모집 일반전형)\n면접 30% 문의 test@example.com' });
+  assert.equal(hidden.data.evaluation_weights.items.length, 0, 'unsafe quote must not leak');
+}));
+
 test('S1 consent (2026-10-31): adult 18+ only; minor 403; boolean required; legacy age_19_confirmed accepted', () => withApp({}, async (c) => {
   const url = '/api/v1/consents';
   assert.equal((await c(url, { method: 'POST', body: { notice_version: 'v1' } })).status, 422);

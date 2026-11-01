@@ -196,6 +196,7 @@ export function createStore({ ttlDays = 30 } = {}) {
     addConsent(owner, data) {
       const c = { id: randomUUID(), owner_id: owner, age_18_confirmed: data.age_18_confirmed === true || data.age_19_confirmed === true, age_19_confirmed: data.age_19_confirmed === true, minor_notice_ack: data.minor_notice_ack === true, notice_version: data.notice_version, provider_modes_seen: {}, created_at: now() };
       consents.set(owner, c);
+      if (data.guest_ai === true) c.guest_ai = true;
       return c;
     },
     getConsent(owner) { return consents.get(owner) || null; },

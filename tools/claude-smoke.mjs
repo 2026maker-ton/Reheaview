@@ -1,3 +1,5 @@
+import { createLiveTestBudget } from './live-test-budget.mjs';
+globalThis.fetch = createLiveTestBudget(globalThis.fetch).fetch;
 // 수동 스모크(WP-B3). 자동 실행 금지: 개발자가 승인한 뒤 합성 문장으로만 1회 호출한다. 실제 지원자 데이터 금지.
 // 사용: CLAUDE_API_KEY=... CLAUDE_BASE_URL=... CLAUDE_MODEL=... node tools/claude-smoke.mjs
 import { createClaudeAdapter } from '../src/providers/adapters/claude.js';

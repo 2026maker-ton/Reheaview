@@ -1,3 +1,5 @@
+import { ensureGuestAiConsent } from '../core/guest-ai.js';
+import { busyButton } from '../core/busy.js';
 // 면접 결과: 차트(실시간 참고 점수·대학 역량 적합성·평가 차원·음성 지표) + 질문·답변 본문(꼬리질문 구분, i 버튼 근거) + 다음 행동.
 // 차트는 라이브러리 없이 인라인 SVG로 그리고, 같은 숫자를 화면 낭독기용 표로도 둔다.
 import { $, $$, esc, uuid } from '../core/format.js';
@@ -7,34 +9,47 @@ import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { EvidenceQuote } from '../ui/index.js';
-import { InfoBtn } from '../ui/info.js';
+import { InfoBtn, PrivacyLink } from '../ui/info.js';
+import { AXIS_HELP } from '../core/info-text.js';
 import { highlightFillers, fillerSummary } from '../core/filler.js';
 import { enterRoom } from './room.js';
 import { dialog } from '../core/dialog.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let reportLoad = 0;
+export function cancelReportLoading() { reportLoad++; cur = null; }
+export function showReportProcessing() {
+  cur = null; // 이전 보고서의 비동기 렌더가 새 처리 화면을 덮지 않게 한다.
+  state.lastReport = null;
+  $('#feedbackBody').innerHTML = '<section class="card processing-card" role="status" aria-live="polite" aria-busy="true"><span class="processing-mark" aria-hidden="true"></span><h2>면접 결과 분석 중...</h2><p>지금까지의 답변을 바탕으로 결과를 정리하고 있습니다.</p></section>';
+  go('feedback');
+}
+export function showReportFailure(message, retry = loadReport) {
+  $('#feedbackBody').innerHTML = `<section class="card processing-card"><h2>분석을 완료하지 못했습니다.</h2><p role="alert">${esc(message)}</p><button class="primary" id="analysisRetryBtn" type="button">${retry === loadReport ? '다시 확인' : '다시 시도'}</button></section>`;
+  $('#analysisRetryBtn').addEventListener('click', retry);
+}
 export async function loadReport() {
+  const load = ++reportLoad;
+  const sessionId = state.session.id;
+  showReportProcessing();
   for (let i = 0; i < 10; i++) {
     try {
-      const r = await api(`/sessions/${state.session.id}/report`);
-      if (r.status === 'ready') { state.lastReport = r; go('feedback'); renderReport(r); return; }
-      if (r.status === 'failed') { toast(r.detail || '결과를 만들지 못했습니다.', true); return go('dashboard'); }
-    } catch (err) { toast(err.message, true); return go('dashboard'); }
+      const r = await api(`/sessions/${sessionId}/report`);
+      if (load !== reportLoad || state.session?.id !== sessionId) return;
+      if (r.status === 'ready') { state.session.state = 'completed'; state.lastReport = r; go('feedback'); renderReport(r); return; }
+      if (r.status === 'failed') return showReportFailure(r.detail || '결과를 만들지 못했습니다.');
+    } catch (err) { if (load === reportLoad && state.session?.id === sessionId) return showReportFailure(err.message); return; }
     await sleep(1200);
   }
-  toast('결과 생성이 늦어지고 있습니다. 잠시 후 대시보드에서 다시 열어 주세요.', true);
-  go('dashboard');
+  if (load === reportLoad && state.session?.id === sessionId) showReportFailure('분석이 지연되고 있습니다. 잠시 후 다시 확인해 주세요.');
 }
 
 let cur = null; // 지금 그리는 보고서(? 근거 문구에 평가기·개수를 쓴다)
 const evalName = () => (cur?.evaluator?.kind === 'llm' ? `AI(${cur.evaluator.provider === 'claude' ? 'Claude' : 'Gemini'})` : '규칙');
 const BASIS = {
-  head: () => `이번 결과의 평가기는 ${evalName()}입니다. AI가 쓴 인용과 문장은 서버가 원문과 같은지, 금지 표현이 없는지 다시 검사했고, 통과하지 못하면 규칙 기반 결과로 대체했습니다. 공식 평가가 아니며 검증 전 참고용입니다.`,
-  score: () => '각 답변의 점수는 면접 중에 정했습니다. 샘플 답변은 AI(Gemini)가 직접 판단한 값을 서버가 1~4로 검사해 쓰고, 그 외에는 규칙으로 계산합니다. 규칙: 답변 길이와 종결, "제가·직접" 같은 본인 행동 표현, 숫자·결과 표현, "이유·근거·기준" 같은 논리 표현을 셉니다.',
-  fit: () => '역량 이름의 핵심 단어가 답변 문장에 나오는지(단어 일치)로 관련 답변을 찾고, 그 답변들의 참고 점수를 평균냈습니다. 뜻을 이해해서 판단한 것이 아니라 단어 일치 기반이라, 같은 뜻을 다른 말로 하면 "다루지 않음"으로 나올 수 있습니다.',
-  radar: () => `4개 차원의 수준은 ${evalName()}가 답변에서 인용한 문장을 근거로 1~4로 정했습니다. 서버가 인용이 원문과 같은지 확인하고, 근거가 부족한 차원은 최저 수준(1)으로 두고 "미관찰"이라고 표시합니다.`,
-  radar6: () => '6개 영역은 면접 중 정한 질문별 참고 점수(질문 적합성·구체성·논리)와 답변 표지어를 단계·역량별로 모아 규칙으로 계산했습니다. AI가 판단한 값이 아닙니다. 영역마다 관련 답변이 몇 개인지와 근거 충분도를 함께 보여 주고, 답변에서 확인되지 않은 영역은 0점이 아니라 최저 수준(1)으로 두고 "미관찰"이라고 표시합니다. 성찰·성장 깊이는 문제 해결·성찰 단계 답변의 구체성·논리 참고 점수 평균입니다. 면접 태도·의사소통은 질문 적합성 참고 점수에서 제한시간 초과·발화 비율·긴 정적·짧은 답변의 말버릇(최대 0.6 감점)을 반영하고, 음량 변동·목소리 떨림은 참고 표시일 뿐 점수에 직접 반영하지 않습니다. 서류-답변 일관성과 인재상 적합성 영역은 단어 일치 기반이라, 같은 뜻을 다른 말로 했으면 실제보다 낮게 나올 수 있습니다.',
-  voice: () => '브라우저가 녹음 중 소리 크기를 0.05초마다 재서 계산한 숫자입니다. 음성 자체는 서버에 저장하지 않고 숫자 요약만 보냅니다. 소음이 많으면 오차가 있을 수 있습니다.',
+  head: () => `이번 평가기는 ${evalName()}입니다. 원문 인용·금지 표현을 검사하며, AI 결과 검증이 실패하면 규칙으로 대체합니다. 공식 평가가 아닌 검증 전 참고용입니다.`,
+  fit: () => '역량의 핵심 단어가 나온 답변의 참고 점수 평균입니다. 단어 일치 기준이므로 같은 뜻의 다른 표현은 놓칠 수 있습니다.',
+  radar6: () => '답변별 참고 점수·표지어를 규칙으로 집계했습니다. 공식 평가가 아니며, 단어 일치는 다른 표현을 놓칠 수 있습니다. 미관찰은 1로 표시합니다.',
   actions: () => '점수가 낮거나 답변에서 확인되지 않은 영역에서 다음에 연습할 행동 하나씩을 골랐습니다.',
 };
 const SCORE_KEYS = [['relevance', '질문 적합성'], ['specificity', '구체성'], ['reasoning', '논리']];
@@ -89,27 +104,29 @@ function radar6(ax) {
   const rings = [1, 2, 3, 4].map((v) => `<polygon class="grid" points="${ds.map((_, i) => fmt(pt(i, (R * v) / 4))).join(' ')}"/>`).join('');
   const spokes = ds.map((_, i) => { const [x, y] = pt(i, R); return `<line class="grid" x1="${C}" y1="${C}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`; }).join('');
   const pts = ds.map((d, i) => pt(i, (R * d.level) / 4));
+  const hint = (d) => esc(`${d.label} · ${d.observed ? `${d.level} / 4` : '1 / 4 · 미관찰'}. ${AXIS_HELP[d.id] || d.basis}`);
   const area = `<polygon class="area" points="${pts.map(fmt).join(' ')}"/>`;
   const dots = ds.map((d, i) => {
     const p = pts[i];
-    return d.observed
+    const dot = d.observed
       ? `<circle class="dot" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5"><title>${esc(d.label)} ${d.level}</title></circle>`
       : `<circle class="dot hold" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4"><title>${esc(d.label)} 미관찰(최저 수준 1)</title></circle>`;
+    return `<g data-tooltip="${hint(d)}" class="chart-hint"><circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="9" fill="transparent"/>${dot}</g>`;
   }).join('');
   const labels = ds.map((d, i) => {
     const [x, y] = pt(i, R + 14); const c = Math.cos(ang(i));
     const anchor = c > 0.3 ? 'start' : c < -0.3 ? 'end' : 'middle';
     const words = d.label.split(' ');
     const first = words.slice(0, Math.ceil(words.length / 2)).join(' '); const rest = words.slice(Math.ceil(words.length / 2)).join(' ');
-    return `<text class="axis" x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="${anchor}">${esc(first)}${rest ? `<tspan x="${x.toFixed(1)}" dy="12">${esc(rest)}</tspan>` : ''}<tspan x="${x.toFixed(1)}" dy="12" class="axis-val${d.observed ? '' : ' hold'}">${d.observed ? d.level.toFixed(1) : '1.0 · 미관찰'}</tspan></text>`;
+    return `<g class="chart-hint" tabindex="0" role="button" aria-label="${hint(d)}" data-tooltip="${hint(d)}"><text class="axis" x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="${anchor}">${esc(first)}${rest ? `<tspan x="${x.toFixed(1)}" dy="12">${esc(rest)}</tspan>` : ''}<tspan x="${x.toFixed(1)}" dy="12" class="axis-val${d.observed ? '' : ' hold'}">${d.observed ? d.level.toFixed(1) : '1.0 · 미관찰'}</tspan></text></g>`;
   }).join('');
-  return `<figure class="chart wide"><figcaption>6개 영역 레이더${InfoBtn('report.axes')} <span class="chip-note">${esc(ax.label)}</span></figcaption><svg viewBox="-110 -14 480 290" role="img" aria-label="6개 영역 레이더 차트">${rings}${spokes}${area}${dots}${labels}</svg>
+  return `<figure class="chart wide"><figcaption>6개 영역 레이더${InfoBtn('report.axes')} <span class="chip-note">${esc(ax.label)}</span></figcaption><svg viewBox="-110 -14 480 290" role="group" aria-label="6개 영역 레이더 차트">${rings}${spokes}${area}${dots}${labels}</svg>
     ${srTable('6개 영역', ['영역', '수준', '근거', '관련 답변 수'], ds.map((d) => [d.label, d.observed ? `${d.level} / 4` : '1 / 4 (미관찰)', EVID[d.evidence], d.n]))}${aiAccordion('dimension_comment', BASIS.radar6(), axisTable(ax))}</figure>`;
 }
 function axisTable(ax) {
   const ds = ax?.axes || [];
   if (!ds.length) return '';
-  const rows = ds.map((d) => `<tr><th scope="row">${esc(d.label)}</th><td><strong>${d.level.toFixed(1)}</strong> / 4${d.observed ? '' : ' <span class="tag">미관찰</span>'}</td><td><span class="tag${d.evidence === 'sufficient' ? ' official' : ''}">${esc(EVID[d.evidence])}</span> <span class="meta">답변 ${d.n}개</span></td><td>${d.quote ? `<q>${esc(d.quote)}</q>` : '<span class="meta">—</span>'}${d.reason ? `<p class="meta">${esc(d.reason.replace('아래 대조를 직접 확인하세요.', '세부 정보의 지원서 근거와 답변을 직접 확인하세요.'))}</p>` : ''}${d.action ? `<p class="axis-action">${esc(d.action)}</p>` : ''}</td><td>${InfoBtn(`${d.basis}${d.reason ? ` ${d.reason}` : ''}`, { kind: 'basis', label: `${d.label} 판단 근거 보기` })}</td></tr>`).join('');
+  const rows = ds.map((d) => `<tr><th scope="row">${esc(d.label)}</th><td><strong>${d.level.toFixed(1)}</strong> / 4${d.observed ? '' : ' <span class="tag">미관찰</span>'}</td><td><span class="tag${d.evidence === 'sufficient' ? ' official' : ''}">${esc(EVID[d.evidence])}</span> <span class="meta">답변 ${d.n}개</span></td><td>${d.quote ? `<q>${esc(d.quote)}</q>` : '<span class="meta">—</span>'}${d.reason ? `<p class="meta">${esc(d.reason.replace('아래 대조를 직접 확인하세요.', '세부 정보의 학생부·활동 근거와 답변을 직접 확인하세요.'))}</p>` : ''}${d.action ? `<p class="axis-action">${esc(d.action)}</p>` : ''}</td><td>${InfoBtn(`${d.basis}${d.reason ? ` ${d.reason}` : ''}`, { kind: 'basis', label: `${d.label} 판단 근거 보기` })}</td></tr>`).join('');
   return `<section class="card axis-card"><h2>영역별 근거${InfoBtn('report.axes')}</h2><div class="table-wrap"><table class="ev-table"><thead><tr><th scope="col">영역</th><th scope="col">수준(1~4)</th><th scope="col">근거 충분도</th><th scope="col">답변 인용 · 다음에 해 볼 것</th><th scope="col"><span class="sr-only">판단 근거</span></th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 // 면접 태도·전달력 코칭(설계서 §10.4): 실제로 잴 수 있는 것만.
@@ -133,15 +150,15 @@ function coachingHtml(tr) {
 function blindSafetyHtml(bs) {
   if (!bs) return '';
   const kinds = [...new Set((bs.events || []).flatMap((e) => e.labels || []))];
-  return `<section class="card privacy-results" id="privacyResults"><h2>개인정보 유출 검사 결과${InfoBtn('report.blind')}</h2>
+  return `<section class="card privacy-results" id="privacyResults"><h2>블라인드·개인정보 검사 결과${PrivacyLink('blind')}</h2>
     <p>AI로 보내지 않고 다시 답하게 한 횟수: <strong>${bs.blocked_count}회</strong>${kinds.length ? ` <span class="meta">(${esc(kinds.join(' · '))})</span>` : ''}</p>
     ${bs.masked_answers ? `<p>결과에서 표현을 가린 답변: ${bs.masked_answers}개</p>` : ''}
-    <p class="fine">블라인드 면접에서 이름·출신 고교·수험번호·가족 직업 등 개인이나 배경을 드러내는 표현을 확인합니다. 감지된 답변은 답변 분석 AI로 보내기 전에 차단하고 다시 답하도록 안내하며, 결과에는 해당 표현의 원문을 표시하지 않습니다. 음성 전사는 별도 동의에 따라 먼저 처리됩니다. 규칙 기반 검사에는 누락·오탐이 있을 수 있으며, 개인정보 유출 여부를 완전히 보장하는 검사는 아닙니다. <span class="meta">검사 버전 ${esc(bs.filter_version)}</span></p></section>`;
+    <p class="fine">대입 블라인드 면접 기준(성명·수험번호·출신 고교·부모 및 친인척의 직업 등 사회적 지위)과 개인정보에 대한 규칙 기반 검사입니다. 누락·오탐이 있을 수 있습니다. <span class="meta">검사 버전 ${esc(bs.filter_version)}</span></p></section>`;
 }
 async function reportIssue(r) {
-  const type = await dialog({ title: '오류 신고', label: '신고 유형', choices: [['question', '질문 오류'], ['source', '출처 오류'], ['fact', '사실 오류'], ['privacy', '개인정보 노출'], ['inappropriate', '부적절한 표현'], ['stt', '전사(음성 인식) 오류'], ['evaluation', '평가 오류']], value: 'evaluation', okText: '다음' });
+  const type = await dialog({ title: '오류 신고', label: '신고 유형', choices: [['question', '질문 오류'], ['source', '출처 오류'], ['fact', '사실 오류'], ['privacy', '개인정보·블라인드 노출'], ['inappropriate', '부적절한 표현'], ['stt', '전사(음성 인식) 오류'], ['evaluation', '평가 오류']], value: 'evaluation', okText: '다음' });
   if (type === null) return;
-  const comment = await dialog({ title: '내용 (선택)', message: '이름·학교·가족 등 개인정보는 쓰지 마세요. 저장 전에 가려지고 모델 학습에 쓰지 않습니다.', label: '내용', value: '', multiline: true, okText: '신고' });
+  const comment = await dialog({ title: '내용 (선택)', message: '성명·수험번호·출신 고교·부모 및 친인척의 직업 등 개인정보나 사회적 지위를 드러내는 내용은 쓰지 마세요. 저장 전에 가려지고 모델 학습에 쓰지 않습니다.', label: '내용', value: '', multiline: true, okText: '신고' });
   if (comment === null) return;
   try { await api('/issue-reports', { method: 'POST', idempotent: true, body: { type, session_id: r.session_id, comment } }); toast('신고를 접수했습니다.'); } catch (err) { toast(err.message, true); }
 }
@@ -183,7 +200,7 @@ function voiceTimelineChart(tl, idx) {
 function evidenceList(ev) {
   if (!ev?.length) return '<p class="meta">이 질문은 학과 정보로 만든 기본 질문입니다.</p>';
   return `<ul class="plain">${ev.map((e) => (e.kind === 'application'
-    ? `<li><span class="tag user">지원서</span> <q>${esc(e.quote)}</q></li>`
+    ? `<li><span class="tag user">학생부·활동</span> <q>${esc(e.quote)}</q></li>`
     : `<li><span class="tag">${esc(e.status === 'user_supplied' ? '직접 입력 역량' : e.status === 'ai_search' ? FIXED.aiSearch : '대학 인재상')}</span> ${esc(e.label)}${e.quote ? ` <q>${esc(e.quote)}</q>` : ''}${e.url ? ` <a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">출처</a>` : ''}</li>`)).join('')}</ul>`;
 }
 
@@ -196,7 +213,7 @@ function commentHtml(t) {
   const c = t.comment; const risk = t.risk;
   const hasRisk = risk && risk.level !== 'none';
   if (!c?.good && !c?.fix && !hasRisk) return '';
-  const riskText = hasRisk ? `답변에 ${risk.categories.map((x) => x.label).join('·')}을(를) 짐작하게 하는 표현이 있습니다. 블라인드 면접에서는 피하는 것이 안전하며, 그 표현은 위 답변에서 가렸습니다.` : '';
+  const riskText = hasRisk ? `답변에 ${risk.categories.map((x) => x.label).join('·')}을(를) 드러내는 표현이 있습니다. 대입 블라인드 면접에서는 개인정보·출신 고교·부모의 직업 등 사회적 지위 노출을 피해야 하며, 그 표현은 위 답변에서 가렸습니다.` : '';
   return `<div class="qa-comment${hasRisk ? ' has-risk' : ''}"><div class="qa-comment-body">
     ${c?.good ? `<p><b>잘한 점</b> ${esc(c.good)}</p>` : ''}${c?.fix ? `<p><b>고치면 좋은 점</b> ${esc(c.fix)}</p>` : ''}
     <span class="comment-tools">${InfoBtn('report.comment')}${c?.basis ? InfoBtn(c.basis, { kind: 'basis' }) : ''}</span></div>
@@ -228,7 +245,7 @@ function claimsHtml(list) {
 function planHtml(plan) {
   const st = plan?.stages || [];
   if (!st.length) return '<p class="meta">질문 계획을 불러오지 못했습니다.</p>';
-  return `<ol class="plan-list">${st.map((s) => `<li><span class="stage-chip">${esc(STAGE_LABEL[s.stage] || s.stage)}</span><span class="val">${esc(s.text)}</span>${s.evidence?.length ? `<span class="meta">근거: ${s.evidence.map((e) => esc(e.kind === 'application' ? `지원서 “${String(e.quote).slice(0, 30)}…”` : e.label)).join(', ')}</span>` : ''}</li>`).join('')}</ol>`;
+  return `<ol class="plan-list">${st.map((s) => `<li><span class="stage-chip">${esc(STAGE_LABEL[s.stage] || s.stage)}</span><span class="val">${esc(s.text)}</span>${s.evidence?.length ? `<span class="meta">근거: ${s.evidence.map((e) => esc(e.kind === 'application' ? `학생부·활동 “${String(e.quote).slice(0, 30)}…”` : e.label)).join(', ')}</span>` : ''}</li>`).join('')}</ol>`;
 }
 async function loadDetail() {
   const id = state.profile?.id;
@@ -237,7 +254,7 @@ async function loadDetail() {
   const [cl, plan] = await Promise.all([api(`/profiles/${id}/claims`).catch(() => null), api(`/profiles/${id}/plan`).catch(() => null)]);
   if (!cl && !plan) { host.hidden = true; return; }
   host.hidden = false;
-  host.querySelector('.detail-body').innerHTML = `<h3>지원서에서 확인한 내용</h3>${claimsHtml(cl?.claims)}<h3>면접 질문 목록</h3>${planHtml(plan)}`;
+  host.querySelector('.detail-body').innerHTML = `<h3>학생부·활동 자료에서 확인한 내용</h3>${claimsHtml(cl?.claims)}<h3>면접 질문 목록</h3>${planHtml(plan)}`;
 }
 
 // 같은 질문 계획으로 여러 번 본 면접의 회차 목록(2회 이상일 때만 탭을 보인다). 회차별 보고서는 처음 열 때 불러온다.
@@ -257,8 +274,9 @@ function attemptTabs(list, currentId) {
 // 다시 보기: 승인 때 확정한 질문 계획 그대로(질문을 새로 만들지 않는다) 실면접과 결과만 새로 진행한다. 꼬리질문 판단은 면접 중 공급자 설정(Gemini)을 따른다.
 async function retryInterview(r) {
   const btn = $('#retryBtn');
-  btn.disabled = true;
+  const done = busyButton(btn, '면접 준비 중...');
   try {
+    if (!(await ensureGuestAiConsent())) return;
     const input_mode = state.lastInputMode || 'text';
     const s = await api('/sessions', { method: 'POST', idempotent: true, body: { profile_version_id: r.profile_version_id || state.versionId, interview_format: 'general', input_mode } });
     state.session = { id: s.id, version: s.version, state: 'ready' };
@@ -267,7 +285,7 @@ async function retryInterview(r) {
     enterRoom({ session: { ...s, input_mode, answer_seconds: s.limits.answer_seconds }, started });
   } catch (err) {
     toast(err.message, true);
-  } finally { btn.disabled = false; }
+  } finally { done(); }
 }
 
 export async function renderReport(r, opts = {}) {
@@ -291,7 +309,7 @@ export async function renderReport(r, opts = {}) {
     <section class="report-main" aria-labelledby="qaTitle"><h2 id="qaTitle">질문과 답변${InfoBtn('report.qa')}</h2>${tr.length ? transcriptHtml(tr) : '<p class="missing">기록된 답변이 없습니다.</p>'}</section>
     ${actions.length ? `<section class="card report-actions"><h2>다음 연습${InfoBtn('report.actions')}${InfoBtn(BASIS.actions(), { kind: 'basis' })}</h2><ol>${actions.map((a) => `<li><strong>${esc(dimLabel(a.dimension_id))}</strong> ${esc(a.action)}</li>`).join('')}</ol></section>` : ''}
 
-    <details class="card report-detail" id="reportDetail" hidden><summary>세부 정보 · 지원서 근거와 질문 목록${InfoBtn('report.detail')}</summary><div class="detail-body"></div></details>
+    <details class="card report-detail" id="reportDetail" hidden><summary>세부 정보 · 학생부·활동 근거와 질문 목록${InfoBtn('report.detail')}</summary><div class="detail-body"></div></details>
     <div class="actions"><button class="primary" type="button" id="retryBtn">다시 면접 보기</button><button class="ghost" type="button" id="reportHomeBtn">처음으로</button><button class="ghost" type="button" id="issueBtn">오류 신고</button></div>`;
   bindTimelineProbes(body);
   loadDetail();

@@ -1,5 +1,6 @@
 // 동의 기록·합성 샘플 조회(WP-C6). 반환은 { status, body } 또는 err().
 import { uiFixtures, getFixture, fixtureSummary, fixtureDetail } from '../../domain/fixtures.js';
+import { GUEST_AI_NOTICE_VERSION } from '../../domain/guest-policy.js';
 
 export function createConsentHandlers(d) {
   const { config, store, err } = d;
@@ -13,7 +14,9 @@ export function createConsentHandlers(d) {
     if (!adult) return err('age_restricted', '만 18세 이상만 이용할 수 있습니다.', 403);
     const nv = String(body.notice_version || '').trim();
     if (!nv || nv.length > 40) return err('validation_error', '안내문 버전(notice_version)이 필요합니다.', 422);
-    return { status: 201, body: store.addConsent(owner, { age_18_confirmed: true, age_19_confirmed: body.age_19_confirmed === true, notice_version: nv }) };
+    const guest = store.getUser(owner)?.guest === true;
+    if (guest && (nv !== GUEST_AI_NOTICE_VERSION || body.notice_ack !== true)) return err('consent_required', '게스트 AI 처리 안내에 대한 명시적 동의가 필요합니다.', 428);
+    return { status: 201, body: store.addConsent(owner, { age_18_confirmed: true, age_19_confirmed: body.age_19_confirmed === true, notice_version: nv, ...(guest ? { guest_ai: true } : {}) }) };
   }
   const listFixtures = () => (config.demoFixtures ? { status: 200, body: { fixtures: uiFixtures().map(fixtureSummary) } } : off());
   function getFixtureById(id) {

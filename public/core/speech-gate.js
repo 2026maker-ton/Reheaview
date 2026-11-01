@@ -10,7 +10,7 @@ export const thresholdFrom = (noiseAvg) => Math.max(FLOOR_RMS, noiseAvg * 3);
 
 export function createSpeechGate(threshold = FLOOR_RMS) {
   const th = Math.max(FLOOR_RMS, threshold);
-  let run = 0; let voiced = 0; let sampled = 0; let periodic = 0; let spoke = false;
+  let run = 0; let voiced = 0; let sampled = 0; let periodic = 0; let spoke = false; let recentPeriodicity = false;
   return {
     // rms: 이 프레임 소리 크기. periodicFn: 주기성 검사(비싸서 필요할 때만 호출). 반환: { voice(이 프레임이 확정된 목소리인가), spoke(이 구간에 말이 시작됐나) }
     push(rms, periodicFn) {
@@ -18,14 +18,15 @@ export function createSpeechGate(threshold = FLOOR_RMS) {
       const voice = run >= MIN_RUN_FRAMES;
       if (voice) {
         voiced += 1;
-        if (voiced % 2 === 0) { sampled += 1; if (periodicFn()) periodic += 1; }
+        if (voiced % 2 === 0) { sampled += 1; recentPeriodicity = !!periodicFn(); if (recentPeriodicity) periodic += 1; }
         if (!spoke && voiced >= MIN_VOICED_FRAMES && periodic >= MIN_PERIODIC) spoke = true;
-      }
-      return { voice: voice && (spoke || periodic > 0), spoke };
+      } else recentPeriodicity = false;
+      // spoke는 과거 발화 유무다. 현재 소리 판정에 쓰면 이후의 팬·바람 소리도 계속 발화가 된다.
+      return { voice: voice && recentPeriodicity, spoke };
     },
     get spoke() { return spoke; },
     stats() { return { voiced, sampled, periodic, spoke }; },
-    reset() { run = 0; voiced = 0; sampled = 0; periodic = 0; spoke = false; },
+    reset() { run = 0; voiced = 0; sampled = 0; periodic = 0; spoke = false; recentPeriodicity = false; },
   };
 }
 
