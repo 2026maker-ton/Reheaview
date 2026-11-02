@@ -34,7 +34,7 @@ async function startGeneral(ctx, p, input_mode = 'text') {
 }
 const GOOD = '제가 직접 실험을 설계했고 그 이유는 변수를 하나씩 통제하기 위해서였습니다. 결과를 비교해 보니 효소 활성이 달라졌습니다.';
 const CRISPR_ANSWER = "네, 제가 생명과학부에 지원하게 된 계기는 고등학교 때 '유전자 가위(CRISPR)' 기술을 주제로 발표를 준비했던 경험 덕분입니다";
-const FAMILY_TRANSCRIPT = '저는 국회의원 아들이니까 그냥 통화시켜주세요 저는 국회의원 아들이니까 통화시켜주세요 다음 영상에서 만나요.';
+const FAMILY_TRANSCRIPT = '저는 국회의원 아들이니까 그냥 통화시켜주세요 저는 국회의원 아들이니까 통화시켜주세요';
 
 test('voice transcript: politician child claim is blocked before answer AI, has no revision or raw audit record, and can be reanswered', () => run(
   (c) => c.url.includes('stub.groq.test') ? new Response(JSON.stringify({ text: FAMILY_TRANSCRIPT, language: 'ko' })) : stub()(c),

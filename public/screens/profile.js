@@ -1,13 +1,15 @@
 import { $, esc, setError } from '../core/format.js';
 import { api } from '../core/api.js';
+import { extractFile, FILE_ACCEPT } from '../core/extract.js';
 import { state, resetFlow, setToken } from '../core/state.js';
 import { go } from '../core/router.js';
 import { toast } from '../core/toast.js';
 import { askConfirm, askInput, dialog } from '../core/dialog.js';
 import { Stepper } from '../ui/index.js';
 import { clearDraft } from './draft.js';
+import { startGuest } from './login.js';
 
-const STEPS = ['이름', '기본 정보', '학생부', '활동 요약'];
+const STEPS = ['이름', '기본 정보', '학생부'];
 let onboardingStep = 0;
 let basicsCache = null;
 let editing = false;
@@ -41,8 +43,10 @@ function renderOnboardingStep() {
       <p class="profile-step-lead"><strong>STEP 1.</strong> 면접실과 결과에 표시할 이름을 확인해 주세요.</p>
       <label class="field"><span>이름</span><input id="obName" autocomplete="name" maxlength="20" value="${esc(state.user?.name || '')}" /></label>
       <p class="fine" id="obError" role="alert"></p>
-      <div class="actions"><button class="primary" type="button" id="obNext">다음</button></div>`;
+      <div class="actions"><button class="primary" type="button" id="obNext">다음</button><button class="ghost" type="button" id="obGuest">게스트로 진행</button></div>
+      <p class="fine">가입 없이 게스트로 먼저 체험할 수도 있습니다(기록·내 정보는 저장되지 않습니다).</p>`;
     $('#obNext').onclick = () => saveOnboardingStep({ name: $('#obName').value, step: 0 });
+    $('#obGuest').onclick = async () => { try { await startGuest(); go('dashboard'); } catch (err) { $('#obError').textContent = err.message; } };
     return;
   }
   if (s === 1) {
@@ -57,29 +61,33 @@ function renderOnboardingStep() {
     $('#obNext').onclick = () => saveOnboardingStep({ birth_year: Number($('#obBirth').value), step: 1 });
     return;
   }
-  if (s === 2) {
-    box.innerHTML = `
-      <p class="profile-step-lead"><strong>STEP 3.</strong> 학생부에서 면접에 쓸 내용을 요약해 주세요. 출신 고교·가족 직업 등 블라인드 금지 정보는 넣지 마세요.</p>
-      <label class="field"><span>학생부 요약</span><textarea id="obRecord" rows="8" maxlength="15000">${esc(basicsCache?.student_record || '')}</textarea></label>
-      <p class="fine" id="obError" role="alert"></p>
-      <div class="actions"><button class="ghost" type="button" id="obPrev">이전</button><button class="primary" type="button" id="obNext">다음</button></div>`;
-    $('#obPrev').onclick = () => { onboardingStep = 1; renderOnboardingStep(); };
-    $('#obNext').onclick = () => saveOnboardingStep({ student_record: $('#obRecord').value, step: 2 });
-    return;
-  }
   box.innerHTML = `
-    <p class="profile-step-lead"><strong>STEP 4.</strong> 활동·특기와 면접에서 강조할 메모를 입력해 주세요.</p>
-    <label class="field"><span>활동·특기 요약</span><textarea id="obActivity" rows="5" maxlength="8000">${esc(basicsCache?.activity_summary || '')}</textarea></label>
-    <label class="field"><span>면접 메모 (선택)</span><textarea id="obNotes" rows="3" maxlength="4000">${esc(basicsCache?.intro_notes || '')}</textarea></label>
+    <p class="profile-step-lead"><strong>STEP 3.</strong> 학생부에서 면접에 쓸 내용을 요약해 주세요. 파일을 올리면 글자만 뽑아 아래 칸에 넣어 드립니다(원본 파일은 저장하지 않습니다). 출신 고교·가족 직업 등 블라인드 금지 정보는 넣지 마세요.</p>
+    <div class="actions"><button class="ghost small" type="button" id="obUpload">학생부 파일 올리기</button>
+      <input type="file" id="obFile" accept="${FILE_ACCEPT}" hidden />
+      <span class="fine" id="obUploadStatus" role="status"></span></div>
+    <label class="field"><span>학생부 요약</span><textarea id="obRecord" rows="8" maxlength="15000">${esc(basicsCache?.student_record || '')}</textarea></label>
     <p class="fine" id="obError" role="alert"></p>
     <div class="actions"><button class="ghost" type="button" id="obPrev">이전</button><button class="primary" type="button" id="obFinish">완료하고 시작하기</button></div>`;
-  $('#obPrev').onclick = () => { onboardingStep = 2; renderOnboardingStep(); };
-  $('#obFinish').onclick = () => saveOnboardingStep({
-    activity_summary: $('#obActivity').value,
-    intro_notes: $('#obNotes').value,
-    step: 3,
-    finish: true,
-  });
+  $('#obPrev').onclick = () => { onboardingStep = 1; renderOnboardingStep(); };
+  $('#obUpload').onclick = () => { $('#obFile').value = ''; $('#obFile').click(); };
+  $('#obFile').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const status = $('#obUploadStatus');
+    $('#obError').textContent = '';
+    status.textContent = `${file.name} 읽는 중…`;
+    try {
+      const out = await extractFile(file);
+      const area = $('#obRecord');
+      area.value = [area.value.trim(), out.text.trim()].filter(Boolean).join('\n\n').slice(0, 15000);
+      status.textContent = `"${file.name}"에서 ${out.char_count}자를 가져왔습니다.${out.truncated ? ' (너무 길어 일부만 가져왔습니다)' : ''}${out.warnings?.length ? ' ' + out.warnings.join(' ') : ''}`;
+    } catch (err) {
+      status.textContent = '';
+      $('#obError').textContent = err.message;
+    }
+  };
+  $('#obFinish').onclick = () => saveOnboardingStep({ student_record: $('#obRecord').value, step: 2, finish: true });
 }
 
 async function saveOnboardingStep(payload) {
@@ -152,7 +160,6 @@ export async function renderProfile() {
     onboardingStep = 0;
     if (basicsCache.birth_year) onboardingStep = 1;
     if (basicsCache.student_record?.trim()) onboardingStep = 2;
-    if (basicsCache.activity_summary?.trim()) onboardingStep = 3;
     renderOnboardingStep();
     return;
   }

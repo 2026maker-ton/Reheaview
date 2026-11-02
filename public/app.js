@@ -3,8 +3,8 @@
 
 import './ui/info.js';
 import { renderScreen, currentTarget, go } from './core/router.js';
-import { setUnauthorizedHandler, setGateHandler } from './core/api.js';
-import { ensureGate, showGate } from './screens/gate.js';
+import { state } from './core/state.js';
+import { setUnauthorizedHandler } from './core/api.js';
 import { initAiSwitch } from './screens/aiswitch.js';
 import './screens/application.js';
 import './screens/evidence.js';
@@ -15,10 +15,8 @@ import './screens/profile.js';
 import { loadProvider, restoreFromStorage } from './screens/dashboard.js';
 
 setUnauthorizedHandler(signedOut);
-setGateHandler(showGate);
 
 (async function boot() {
-  await ensureGate(); // 입장 비밀번호가 필요하면 통과할 때까지 앱을 열지 않는다
   initAiSwitch();
   if (!location.hash) location.hash = '#/landing';
   const target = currentTarget();

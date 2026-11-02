@@ -549,12 +549,15 @@ export function createProfileHandlers(d) {
     const limited = checkRate(owner, 'search');
     if (limited) return limited;
     const year = String(Number(now().slice(0, 4)) + 1); // 수시 지원 학년도(다음 해)
-    const res = await caller.call('school.search', {
+    const runOnce = () => caller.call('school.search', {
       ctx, mockAlias: 'none', reserve: { key: `profile:${profileId}:search`, amount: config.profileRate.reserve },
       invoke: (a) => a.searchSchool({ school: p.school_name || p.target_name, department: p.department || p.role, track: p.track, year }),
       mock: () => null, fallback: () => null,
       validate: (o) => typeof o?.text === 'string' && o.text.trim().length > 0,
     });
+    // 일시 실패(빈 응답·출처 없음)는 한 번만 더 시도한다(호출 상한 2회).
+    let res = await runOnce();
+    if (!res.live || !(res.value?.grounding?.groundingChunks || []).length) res = await runOnce();
     if (!res.live) return { status: 200, body: { profile_id: profileId, status: 'failed', reason: res.trace.reason, provider_trace: [res.trace], history: liveHistory(row.profile) } };
     const g = res.value.grounding || {};
     const sources = (g.groundingChunks || []).map((c) => c?.web).filter((w) => w && /^https?:\/\//.test(String(w.uri || ''))).slice(0, 8).map((w) => ({ url: String(w.uri).slice(0, 500), title: String(w.title || '').slice(0, 120) }));

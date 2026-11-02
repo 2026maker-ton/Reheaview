@@ -17,8 +17,21 @@ export function saveDraft(values, extra = {}) {
   const clean = Object.fromEntries(DRAFT_FIELDS.map((k) => [k, String(values[k] || '').slice(0, 20000)]));
   try { localStorage.setItem(key(), JSON.stringify({ v: 1, saved_at: new Date().toISOString(), values: clean, ...extra })); return true; } catch { return false; }
 }
+// 2~3단계(근거 확인·면접 준비) 임시저장: 단계별 선택값만 따로 보관한다(지원 정보 임시저장과 독립).
+const stepKey = (uid = state.user?.id) => `intervu.draftstep.${uid || 'anon'}`;
+export function readStep(name) {
+  try { return JSON.parse(localStorage.getItem(stepKey()) || '{}')[name] || null; } catch { return null; }
+}
+export function saveStep(name, values) {
+  try {
+    const all = JSON.parse(localStorage.getItem(stepKey()) || '{}');
+    all[name] = { ...values, saved_at: new Date().toISOString() };
+    localStorage.setItem(stepKey(), JSON.stringify(all));
+    return true;
+  } catch { return false; }
+}
 export function clearDraft(uid = state.user?.id) {
-  try { localStorage.removeItem(`intervu.draft.${uid || 'anon'}`); } catch { /* noop */ }
+  try { localStorage.removeItem(`intervu.draft.${uid || 'anon'}`); localStorage.removeItem(stepKey(uid)); } catch { /* noop */ }
 }
 const FROM_DRAFT = 'reheaview.fromDraft';
 export function markDraftForInterview() {

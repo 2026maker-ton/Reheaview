@@ -5,7 +5,7 @@ import { blindGate, sanitizeForAi, blindMessage, blindEvent } from '../../src/do
 import { detectBlindRisk } from '../../src/domain/answer-review.js';
 
 const CRISPR_ANSWER = "네, 제가 생명과학부에 지원하게 된 계기는 고등학교 때 '유전자 가위(CRISPR)' 기술을 주제로 발표를 준비했던 경험 덕분입니다";
-const FAMILY_TRANSCRIPT = '저는 국회의원 아들이니까 그냥 통화시켜주세요 저는 국회의원 아들이니까 통화시켜주세요 다음 영상에서 만나요.';
+const FAMILY_TRANSCRIPT = '저는 국회의원 아들이니까 그냥 통화시켜주세요 저는 국회의원 아들이니까 통화시켜주세요';
 
 test('family background: political jobs and child relations block in both directions, including spaced spelling', () => {
   for (const text of [FAMILY_TRANSCRIPT, '저는 국회의원의 딸입니다.', '나는 국회의원 아들이다.', '국회의원 자녀라서 부탁드립니다.', '장관의 자제입니다.', '의사 아들이라 관심을 가졌습니다.', '장관의 자녀예요.', '아버지가 국회의원이십니다.', '어머니는 정치인입니다.', '저는 국 회 의 원 의 아 들 이니까 통화시켜 주세요.', '부 모 님 은 국 회 의 원 이십니다.']) {

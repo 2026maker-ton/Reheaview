@@ -1278,3 +1278,20 @@ h1, h2, h3 { letter-spacing: -.025em; }
 .main-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 8px 0 20px; border-bottom: 1px solid var(--line-2); margin-bottom: 24px; }
 .main-head h1 { margin: 0; }
 .main-head .hero-start { min-width: 0; padding: 12px 24px; }
+
+/* 오류 문구(role=alert)는 빨간 글씨로 보인다. 시작 전 확인 미체크 등 모든 화면 공통 */
+.fine[role="alert"] { color: var(--state-error); font-weight: 600; }
+
+/* 레이아웃 정리(2026-11-03): 빈 기록 박스·예시 채우기 박스·답변 방식 박스를 같은 카드 형태로 맞춘다 */
+.empty-state { margin-top: 12px; padding: 24px 16px; text-align: center; background: var(--tint, #f4f6ec); border: 1px dashed var(--line-2, var(--line)); border-radius: 14px; }
+.empty-state p { margin: 0; }
+.empty-state p + p { margin-top: 6px; }
+.sample-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--tint, #f4f6ec); padding: 16px; margin: 12px 0 18px; }
+.sample-row .sample-pick { grid-column: 1; min-width: 0; margin: 0; }
+.sample-row #loadFixtureBtn { grid-column: 2; align-self: end; white-space: nowrap; }
+.sample-row #fixtureBadge { grid-column: 1 / -1; justify-self: start; }
+.field-group { border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 0 0 16px; min-inline-size: 0; }
+.field-group > legend { float: left; width: 100%; padding: 0; margin: 0 0 10px; }
+.field-group > legend + * { clear: both; }
+@media (max-width: 560px) { .sample-row { grid-template-columns: 1fr; } .sample-row #loadFixtureBtn { grid-column: 1; } }
+#setupForm .summary { margin: 0 0 16px; }

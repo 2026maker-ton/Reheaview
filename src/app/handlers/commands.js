@@ -15,7 +15,7 @@ import { nextAiUtterance, moderatorLine, recordDiscussionTurn } from '../../doma
 import { validateDialogueOutput, validateFollowupOutput } from '../../providers/validate.js';
 import { buildLlmEvaluation } from '../../domain/llm-eval.js';
 import { checkFeedbackSafety } from '../../domain/evaluation.js';
-import { SPOKEN, ruleFollowup, ruleTurnScore, validTurnScore, competencyFit } from '../../domain/interview-format.js';
+import { SPOKEN, ackOnly, answerState, pickAck, ruleFollowup, ruleTurnScore, validTurnScore, competencyFit } from '../../domain/interview-format.js';
 import { blindGate, blindEvent, blindMessage, FILTER_VERSION } from '../../domain/blind-gate.js';
 import { buildAxes } from '../../domain/axes.js';
 import { ruleComments, validComments } from '../../domain/report-comment.js';
@@ -423,7 +423,7 @@ export function createCommandHandlers(d) {
     const turn = store.createTurn(s.id, { speaker_id: 'user', question_id: q.id, competency: q.primary, followup: followupTurn, elicited_dims: followupTurn ? [q.primary] : [q.primary, ...(q.secondary || [])] });
     const rev = store.addRevision(turn.id, text, 'user', detectPii(text).map((x) => x.type));
     Object.assign(turn, { cut_off: cutOff, voice_metrics: sanitizeVoice(payload.voice_metrics), asked_text: askedText, stage: q.stage });
-    const canFollow = q.followup_allowed && !followupTurn;
+    const canFollow = q.followup_allowed && !followupTurn && answerState({ text }) !== 'noanswer'; // 무응답에는 꼬리질문을 하지 않는다
     const ctx = requestContext(owner, { synthetic: rev.synthetic === true });
     const evidenceText = (q.evidence || []).filter((e) => e.kind === 'application').map((e) => e.quote || '').filter(Boolean).join('\n');
     const scoreCtx = { question: askedText, evidence: evidenceText };
@@ -445,7 +445,8 @@ export function createCommandHandlers(d) {
         // 실제 AI 호출이 실패하면 꼬리질문을 만들어내지 않고 다음 승인 질문으로 넘어간다(설계서 §6.2-6). AI가 꺼진 데모(Mock)에서만 규칙 꼬리질문을 쓴다.
         mock: ruleNext, fallback: () => ({ action: 'next', turn_score: scored() }),
         // 꼬리질문 문장은 기존 대화 검증기(240자·물음표 1개·금칙어·새 숫자 금지)를 통과해야 한다. 점수가 형식에 안 맞으면 규칙 점수로 바꾼다.
-        validate: (o) => o?.action === 'next' || (o?.action === 'followup' && validateDialogueOutput(o, contextText) && personaOutputOk(o.utterance) && (String(o.utterance).match(/[?？]/g) || []).length === 1),
+        // 인용(quote)이 있으면 답변 속 연속된 글이어야 한다(지어낸 인용 차단). 프롬프트가 인용을 요구하지만 없어도 위 검증(1개 질문·새 숫자 금지)은 통과해야 한다.
+        validate: (o) => o?.action === 'next' || (o?.action === 'followup' && validateDialogueOutput(o, contextText) && personaOutputOk(o.utterance) && (String(o.utterance).match(/[?？]/g) || []).length === 1 && (!o.quote || text.replace(/\s+/g, '').includes(String(o.quote).replace(/\s+/g, '')))),
       });
       trace = res.trace; decision = res.value;
       if (['live', 'fallback'].includes(trace.mode)) s.llm_calls += 1; // 실제로 호출한 경우만 센다
@@ -476,7 +477,7 @@ export function createCommandHandlers(d) {
     const nq = s.questions[nextIndex];
     store.updateSession(s, { question_started_at: now() });
     store.pushEvent(s.id, 'assistant.message', { utterance: nq.text, action: 'next_question', stage: nq.stage });
-    return accept({ ...base, state: s.state, version: s.version, action: 'next_question', question: roomQuestion(nq), utterance: nq.text, current_question: roomQuestion(nq) });
+    return accept({ ...base, state: s.state, version: s.version, action: 'next_question', bridge: pickAck(answerState({ text, cut_off: cutOff, followup: followupTurn }), q.bridge, parseInt(String(s.id).replace(/[^0-9a-f]/g, '').slice(0, 6), 16) + s.q_index), question: roomQuestion(nq), utterance: nq.text, current_question: roomQuestion(nq) });
   }
 
   // 보고서용 질문·답변 기록(일반 면접): 본질문·꼬리질문을 구분하고, 근거(i 버튼)·참고 점수·음성 지표를 붙인다.
@@ -488,7 +489,7 @@ export function createCommandHandlers(d) {
       const rawAnswer = rev?.normalized_text || '';
       const risk = detectBlindRisk(rawAnswer);
       const answerText = risk.level === 'none' ? rawAnswer : maskRisk(rawAnswer, risk.spans);
-      return { turn_id: t.id, question_id: q.id, stage: q.stage, stage_label: q.stage_label, is_followup: !!t.followup, question_text: t.asked_text || q.text, answer_text: answerText, comment: answerComment({ turn_score: t.turn_score, cut_off: !!t.cut_off, text: rawAnswer }), risk: { level: risk.level, categories: risk.categories.map(({ id, label }) => ({ id, label })) }, revision: rev?.revision || 1, cut_off: !!t.cut_off, turn_score: t.turn_score || null, voice_metrics: t.voice_metrics || null, evidence: t.followup ? [] : (q.evidence || []) };
+      return { turn_id: t.id, question_id: q.id, competency_ids: q.competency_ids || [], stage: q.stage, stage_label: q.stage_label, is_followup: !!t.followup, question_text: t.asked_text || q.text, answer_text: answerText, comment: answerComment({ turn_score: t.turn_score, cut_off: !!t.cut_off, text: rawAnswer }), risk: { level: risk.level, categories: risk.categories.map(({ id, label }) => ({ id, label })) }, revision: rev?.revision || 1, cut_off: !!t.cut_off, turn_score: t.turn_score || null, voice_metrics: t.voice_metrics || null, evidence: t.followup ? [] : (q.evidence || []) };
     });
   }
 
@@ -639,7 +640,7 @@ export function createCommandHandlers(d) {
             return { ...t, turn_score: { relevance: r.relevance, specificity: r.specificity, reasoning: r.reasoning, source: 'llm' }, comment: { good: r.good || null, fix: r.fix || null, basis: 'Gemini가 이 질문, 학생부 근거, 이 답변을 읽고 쓴 문장입니다. 검증 전 참고이며 합격 판단이 아닙니다.', weakest: null, strongest: null } };
           });
         }
-        const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score, evidence_ids: (t.evidence || []).map((e) => e.id).filter(Boolean) }));
+        const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score, evidence_ids: (t.evidence || []).map((e) => e.id).filter(Boolean), competency_ids: t.competency_ids || [] }));
         const comps = ver?.plan?.general?.competencies || [];
         const vProf = vProfEarly;
         const vInst = vProf ? store.getInstitution(vProf.id)?.profile : null;

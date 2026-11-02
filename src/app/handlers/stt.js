@@ -2,6 +2,7 @@
 // 녹음 후 전사 방식. 전사 텍스트는 답변 입력창 확인용으로만 반환하며,
 // 기존 turn.text 제출 API를 그대로 사용해 면접을 진행한다.
 import { detectPii } from '../../domain/pii.js';
+import { stripSttHallucination } from '../../domain/stt-filter.js';
 import { readMultipartAudio } from '../body.js';
 import { SIGNUP_NOTICE_VERSION } from './auth.js';
 import { GUEST_AI_NOTICE_VERSION } from '../../domain/guest-policy.js';
@@ -99,7 +100,7 @@ export function createSttHandlers(d) {
       if (trace.mode === 'fallback') return err('stt_failed', '음성 인식에 실패했습니다. 텍스트로 답해 주세요.', 502, { retryable: false, requestId, details });
       return err('stt_unavailable', '음성 인식을 사용할 수 없습니다. 텍스트로 답해 주세요.', 503, { retryable: false, requestId, details });
     }
-    const out = res.value;
+    const out = { ...res.value, text: stripSttHallucination(res.value.text) };
     if (!out.text) {
       return { status: 200, body: { text: '', empty: true, model: out.model, provider_trace: [trace], note: '전사 결과가 비어 있습니다. 다시 녹음하거나 텍스트로 입력하세요.' } };
     }

@@ -1,8 +1,8 @@
 // 일반 면접 5단계(2026-10-31) 프롬프트. 지원서·답변·학교 자료는 모두 비신뢰 데이터 블록 안에만 넣는다.
 // 출력은 JSON 하나이며 서버가 검증한다(src/domain/interview-format.js, src/providers/validate.js).
 export const STAGES_PROMPT_VERSION = 'stages-design-v1';
-export const TURN_PROMPT_VERSION = 'turn-decide-v2';
-export const SEARCH_PROMPT_VERSION = 'school-search-v2-weights';
+export const TURN_PROMPT_VERSION = 'turn-decide-v3-quote';
+export const SEARCH_PROMPT_VERSION = 'school-search-v3-admissions-only';
 const OPEN = '<untrusted_data>';
 const CLOSE = '</untrusted_data>';
 const defang = (s, n) => String(s ?? '').slice(0, n).replace(/</g, '＜').replace(/>/g, '＞');
@@ -17,7 +17,7 @@ export function buildStageMessages({ department, competencies = [], claims = [],
 2. 다음 5단계마다 본질문을 정확히 1개 만듭니다: intro(지원 동기·관심 분야), academic(전공 이해도·학습 경험), experience(실제 수행 내용·기여도), reflection(실패 원인·한계·개선 방향), closing(향후 계획·최종 질문).
 3. academic은 역량 자료(trait-·elem-·trait-u) id를, experience와 reflection은 학생부·활동 주장(claim-) id를 evidence_ids에 1개 이상 넣습니다. intro·closing은 evidence_ids를 비웁니다. 자료에 없는 id는 쓰지 않습니다.
 4. 질문은 한 문장, 200자 이내, 물음표 하나로 끝납니다. 자료에 없는 숫자·학교명·사람 이름·사실을 만들지 않습니다.
-5. bridge는 이 단계 답변을 들은 뒤 다음 단계로 자연스럽게 넘어가는 면접관 말 한 문장(80자 이내, 물음표 없음)입니다. closing의 bridge는 빈 문자열입니다.
+5. bridge는 방금 받은 답변을 인정하는 면접관 말 한 문장(예: "잘 알겠습니다.", 80자 이내, 물음표 없음)입니다. 다음 주제를 예고하지 않습니다("이제 ~에 대해 여쭤보겠습니다" 금지). closing의 bridge는 빈 문자열입니다.
 6. 점수·등급·합격 여부·모범답안·순위를 말하지 않습니다.
 7. 출력은 JSON {"stages":[{"stage":"intro","question":"...","evidence_ids":[],"bridge":"..."}]} 하나뿐입니다.
 8. ${BLIND_RULE}${persona ? `
@@ -39,9 +39,11 @@ export function buildTurnMessages({ stageLabel, question, answer, evidence = '',
 규칙:
 1. ${UNTRUSTED}
 2. 답변이 질문과 같은 소재로 충분히 답했으면 action은 "next"입니다. 같은 소재인데 본인 행동·판단 근거·결과·성찰 중 질문이 요구한 것이 빠졌을 때만 "followup"이고, 그 빠진 점 하나를 답변에 있던 말로 묻는 꼬리질문 한 개(240자 이내, 물음표 하나)를 utterance에 넣습니다. 답변이 질문과 다른 소재면 새 주제를 잇지 말고, 질문의 소재로 돌아오게 묻는 followup만 허용합니다.${allowFollowup ? '' : '\n   이 단계는 꼬리질문을 하지 않습니다. action은 항상 "next"입니다.'}
-3. 꼬리질문에 자료에 없는 숫자·사실을 만들지 않고, 직전 질문·답변과 무관한 새 주제를 꺼내지 않습니다.
+3. 꼬리질문에 자료에 없는 숫자·사실을 만들지 않고, 직전 질문·답변과 무관한 새 주제를 꺼내지 않습니다. 꼬리질문은 답변 속 구절 하나를 그대로 인용(quote, 답변에 있는 연속된 글, 40자 이내)해 그 구절에 대해 빠진 점 하나만 묻습니다. 일반적인 문장("더 구체적으로 말씀해 주세요", "다른 주제로 들립니다")은 쓰지 않습니다. 답변에 구체적 구절이 없으면 followup 대신 "next"입니다.
+   좋은 예: 답변 "온도별로 효소 반응을 비교했습니다" → {"action":"followup","quote":"온도별로 효소 반응을 비교했습니다","utterance":"온도별로 비교하셨다고 했는데, 어떤 기준으로 온도 조건을 정하셨나요?"}
+   나쁜 예: "그 부분을 조금 더 자세히 설명해 주시겠어요?"(인용 없음, 무엇을 묻는지 불명)
 4. turn_score는 이 답변 하나에 대한 참고 관찰입니다: relevance(질문·근거와 같은 소재인지), specificity(구체성), reasoning(논리) 각각 1~4 정수. 답변의 소재가 질문이나 근거와 다르면 문장이 길어도 relevance는 1입니다. 같은 소재를 다른 말로 했으면 단어가 달라도 낮추지 않습니다.
-5. 출력은 JSON {"action":"next"|"followup","utterance":"...","turn_score":{"relevance":1,"specificity":1,"reasoning":1}} 하나뿐입니다.
+5. 출력은 JSON {"action":"next"|"followup","quote":"(followup일 때 답변에서 인용한 구절)","utterance":"...","turn_score":{"relevance":1,"specificity":1,"reasoning":1}} 하나뿐입니다.
 6. ${BLIND_RULE} 학생의 정직성·성격·지능을 단정하거나 서류와 답변의 차이를 거짓으로 몰지 않고, 추가 설명이 필요한 부분으로만 묻습니다.${persona ? `
 ${persona}` : ''}`;
   const user = `${OPEN}
@@ -55,7 +57,7 @@ ${CLOSE}`;
 
 // 학교·전형 검색(Google Search grounding). 결과는 약관상 수정 없이 사용자에게 그대로 보여 줄 문장이므로 짧은 평문으로 받는다.
 export function buildSchoolSearchMessages({ school, department, track, year }) {
-  const system = `당신은 한국 대학 입시 자료 조사자입니다. 답하기 전에 반드시 Google 검색 도구로 이 대학 입학처의 해당 연도 모집요강을 먼저 검색합니다(검색하지 않고 기억만으로 답하지 않습니다). 검색 결과에 근거한 내용만 씁니다. 검색으로 확인하지 못한 항목은 "확인 안 됨"이라고 씁니다. 추측하지 않습니다.
+  const system = `당신은 한국 대학 입시 자료 조사자입니다. 답하기 전에 반드시 Google 검색 도구로 이 대학 입학처의 해당 연도 모집요강을 먼저 검색합니다(검색하지 않고 기억만으로 답하지 않습니다). 근거는 해당 연도·대학·학과·전형의 입학처 공개 자료(공식 모집요강·입학처 공지)뿐입니다. 사설 입시 사이트·블로그·커뮤니티·뉴스·다른 연도·다른 학과·다른 전형의 자료는 근거로 쓰지 않습니다. 확인하지 못한 항목은 "확인 안 됨"이라고 씁니다. 추측하지 않고, 인재상 문장을 지어내지 않습니다.
 ${UNTRUSTED}
 아래 7줄 형식의 한국어 평문으로만 답합니다(각 줄 160자 이내):
 전형 확인: (해당 연도에 이 이름의 전형이 있는지, 이름이 바뀌었는지)

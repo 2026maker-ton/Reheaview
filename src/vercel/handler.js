@@ -12,7 +12,6 @@ import { createCore } from '../app/core.js';
 import { createStore } from '../store/memory.js';
 import { loadConfig } from '../config.js';
 import { sha256Hex, randomUUID } from '../app/crypto.js';
-import { createGate } from '../app/gate.js';
 
 const SKIP_MAPS = new Set(['users', 'authSessions']);
 const LOCK_MS = 30_000;
@@ -43,9 +42,9 @@ export async function unpackOwner(store, b64) {
   const l = store.ledgerState(); l.sessions = new Map(d.ledger_sessions || []);
 }
 
-export function createVercelHandler({ env = process.env, redis, trends, officialFetch, nowMs = () => Date.now() } = {}) {
+export function createVercelHandler({ env: envIn = process.env, redis, trends, officialFetch, nowMs = () => Date.now() } = {}) {
+  const env = envIn.VERCEL && !envIn.AI_REQUIRE_LIVE ? { ...envIn, AI_REQUIRE_LIVE: 'on' } : envIn; // 배포에서는 AI가 켜져 있으면 Mock으로 대체하지 않는다
   const config = loadConfig(env);
-  const gate = createGate({ password: config.sitePassword, secret: config.gateSecret });
   const month = () => new Date(nowMs()).toISOString().slice(0, 7);
   const bearer = (req) => /^Bearer\s+(.+)$/.exec(req.headers.get('authorization') || '')?.[1] || null;
 
@@ -69,10 +68,6 @@ export function createVercelHandler({ env = process.env, redis, trends, official
     const url = new URL(request.url);
     const p = url.pathname; const method = request.method;
     if (!p.startsWith('/api/')) return apiErr(404, 'not_found', 'Not found');
-    // Vercel 배포에서는 입장 비밀번호가 없으면 열지 않는다(환경변수를 빠뜨린 채 공개되는 사고 방지).
-    if (!config.sitePassword && env.VERCEL) return apiErr(503, 'gate_unconfigured', '입장 비밀번호(SITE_PASSWORD)가 설정되지 않아 서비스를 열지 않았습니다.');
-    // 잠금을 통과하지 않은 요청은 Redis를 건드리기 전에 막는다(gate 경로만 예외).
-    if (gate.enabled && p !== '/api/v1/gate' && !(await gate.verify(request))) return apiErr(401, 'gate_required', '입장 비밀번호가 필요합니다.');
     if (!redis) return apiErr(503, 'store_unconfigured', '저장소(Upstash Redis)가 연결되지 않았습니다. 환경변수를 확인하세요.');
 
     // AI 스위치: 상태는 Redis(flag:ai_off)에 둔다. 켜고 끄려면 스위치 비밀번호가 필요하고 시도는 IP당 분당 5·일 30회(Redis)로 센다.
@@ -101,12 +96,7 @@ export function createVercelHandler({ env = process.env, redis, trends, official
         if (await authRate(entryEmail || '-', ip)) return apiErr(429, 'rate_limited', '시도가 너무 잦습니다. 잠시 후 다시 시도하세요.', true);
         const uid = entryEmail ? await redis.cmd(['GET', `email:${entryEmail}`]) : null;
         if (uid) { const u = JSON.parse((await redis.cmd(['GET', `user:${uid}`])) || 'null'); if (u) { store._maps.users.set(u.id, u); loaded.users.set(u.id, u); } }
-      } else if (p === '/api/v1/gate' && method === 'POST') {
-        // 입장 비밀번호 시도 제한(IP당 분당 5·일 30): 서버리스는 메모리 카운트가 초기화되므로 Redis로 센다.
-        const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
-        const out = await redis.pipeline([['INCR', `rl:gate:m:${ip}`], ['EXPIRE', `rl:gate:m:${ip}`, 60, 'NX'], ['INCR', `rl:gate:d:${ip}`], ['EXPIRE', `rl:gate:d:${ip}`, 86400, 'NX']]);
-        if (Number(out[0]) > 5 || Number(out[2]) > 30) return apiErr(429, 'rate_limited', '시도가 너무 잦습니다. 잠시 후 다시 시도하세요.', true);
-      } else if (p !== '/api/v1/health' && p !== '/api/v1/interview-types' && p !== '/api/v1/gate') {
+      } else if (p !== '/api/v1/health' && p !== '/api/v1/interview-types') {
         const t = bearer(request);
         if (t) {
           const hash = await sha256Hex(t);

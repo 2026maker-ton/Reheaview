@@ -6,6 +6,8 @@ export function loadConfig(env = process.env) {
     return Number.isFinite(v) && v >= 0 ? v : d;
   };
   const bool = (v) => String(v || 'false').toLowerCase() === 'true';
+  // 기본 AI 공급자: Claude 키가 있으면 Claude(Haiku 5.5를 CLAUDE_MODEL로 지정), 없으면 gemini. 학교·전형 검색(Google 검색 연결)만 Gemini 전용이다.
+  const AI_DEFAULT = env.CLAUDE_API_KEY ? 'claude' : 'gemini';
   const route = (op, d) => {
     const v = String(env[`ROUTE_${op}`] || d).toLowerCase();
     return ['mock', 'gemini', 'groq', 'claude', 'deepseek', 'elevenlabs'].includes(v) ? v : 'mock';
@@ -59,29 +61,31 @@ export function loadConfig(env = process.env) {
     // 환경변수 ROUTE_<OP>(예: ROUTE_DIALOGUE_NEXT=mock)로 공급자를 바꾼다. 알 수 없는 값은 mock으로 처리한다.
     // 모델 ID는 공급자 블록(gemini.textModel 등)에만 있고, 외부(응답·상태 API)에는 alias만 노출한다.
     registry: {
-      'dialogue.next': { provider: route('DIALOGUE_NEXT', String(env.LLM_DIALOGUE_PROVIDER || 'gemini').toLowerCase()), alias: 'dialogue-text', maxOutputTokens: 500 },
-      'claims.extract': { provider: route('CLAIMS_EXTRACT', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
-      'school.analyze': { provider: route('SCHOOL_ANALYZE', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-school', maxOutputTokens: 1500 },
+      'dialogue.next': { provider: route('DIALOGUE_NEXT', String(env.LLM_DIALOGUE_PROVIDER || AI_DEFAULT).toLowerCase()), alias: 'dialogue-text', maxOutputTokens: 500 },
+      'claims.extract': { provider: route('CLAIMS_EXTRACT', env.LLM_ANALYSIS_PROVIDER || AI_DEFAULT), alias: 'gemini-text', maxOutputTokens: 1500 },
+      'school.analyze': { provider: route('SCHOOL_ANALYZE', env.LLM_ANALYSIS_PROVIDER || AI_DEFAULT), alias: 'gemini-school', maxOutputTokens: 1500 },
       // 평가 분업(2026-11-01): 관찰은 Sonnet(evaluation.observe), 채점은 Gemini Flash Lite(evaluation.generate). 한쪽 실패 시 규칙 기반 폴백.
       'evaluation.observe': { provider: route('EVALUATION_OBSERVE', 'claude'), alias: 'claude-observe', maxOutputTokens: 2500 },
       // 평가: Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 폴백(고입 실입력은 게이트에서 항상 규칙 기반)
-      'evaluation.generate': { provider: route('EVALUATION_GENERATE', String(env.LLM_EVALUATION_PROVIDER || 'gemini').toLowerCase()), alias: 'gemini-eval', maxOutputTokens: 2500 },
+      'evaluation.generate': { provider: route('EVALUATION_GENERATE', String(env.LLM_EVALUATION_PROVIDER || AI_DEFAULT).toLowerCase()), alias: 'gemini-eval', maxOutputTokens: 2500 },
       // 학생 MVP(09 §4·§5.1): 트렌드 조회 필요 판단·질문 설계. 기본 gemini(게이트·합성/동의 규칙은 공통), ROUTE_*로 mock 전환.
       'trends.decide': { provider: route('TRENDS_DECIDE', 'gemini'), alias: 'gemini-text', maxOutputTokens: 300 },
-      'questions.design': { provider: route('QUESTIONS_DESIGN', 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
+      'questions.design': { provider: route('QUESTIONS_DESIGN', AI_DEFAULT), alias: 'gemini-text', maxOutputTokens: 1500 },
       // 질문 문장 작성(Haiku): questions.design(구조, Sonnet)이 Claude일 때만 쓰인다.
       'questions.write': { provider: route('QUESTIONS_WRITE', 'claude'), alias: 'claude-writer', maxOutputTokens: 1500 },
       // 학교·전형 검색(grounding, GEMINI_GROUNDING_ACK 필요). 답변 완료는 브라우저가 종결어미로 판단한다(AI 호출 없음).
       'school.search': { provider: route('SCHOOL_SEARCH', 'gemini'), alias: 'gemini-search', maxOutputTokens: 1200 },
       // 보고서 한줄평(면접관 말투 2문장): Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 문구.
-      'report.comment': { provider: route('REPORT_COMMENT', 'gemini'), alias: 'gemini-comment', maxOutputTokens: 400 },
+      'report.comment': { provider: route('REPORT_COMMENT', AI_DEFAULT), alias: 'gemini-comment', maxOutputTokens: 400 },
       // 질문별 점수·잘한 점·고치면 좋은 점. Gemini Flash Lite. 게이트가 닫히면 규칙 문장.
-      'answer.review': { provider: route('ANSWER_REVIEW', 'gemini'), alias: 'gemini-review', maxOutputTokens: 2000 },
+      'answer.review': { provider: route('ANSWER_REVIEW', AI_DEFAULT), alias: 'gemini-review', maxOutputTokens: 2000 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
       'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', String(env.TTS_PROVIDER || 'mock').toLowerCase()), alias: 'tts', maxOutputTokens: 0 },
     },
     // 공급자 게이트 입력(04 §2): 키·BASE_URL·MODEL·LIVE_ACK·REAL_DATA_ACK. 비밀값은 여기에만 있고 응답으로 나가지 않는다.
     // GEMINI_PAID_ACK는 구 설정(유료 확인=약관·데이터 처리 확인)이라 LIVE_ACK+실데이터 허용으로 취급한다(deprecated).
+    // AI_REQUIRE_LIVE=on: AI 스위치가 켜져 있으면 Mock·규칙 폴백으로 조용히 대체하지 않고 오류를 낸다(서버 실행·Vercel 기본 on, 테스트 기본 off).
+    aiRequireLive: String(env.AI_REQUIRE_LIVE || '').toLowerCase() === 'on',
     providerGate: {
       // DeepSeek(WP-B2): 모델·URL은 환경변수에서만 온다(기본값 없음 → 미설정이면 mock, not_configured). 실데이터는 REAL_DATA_ACK+동의+만 19세가 모두 필요.
       deepseek: {
@@ -205,8 +209,6 @@ export function loadConfig(env = process.env) {
     // 관리자 인증 (PROJECT §2.3/§3): /admin/*·/metrics·/diagnostics 는 x-admin-token 헤더가 ADMIN_TOKEN과 일치할 때만 허용.
     // ADMIN_TOKEN 미설정이면 관리 기능은 꺼진다(공개본 조회는 영향 없음).
     adminToken: String(env.ADMIN_TOKEN || ''),
-    // 사이트 입장 비밀번호(데모 잠금, src/app/gate.js). 비우면 잠금 없음. GATE_SECRET은 쿠키 서명용 임의 문자열(없으면 비밀번호만으로 서명).
-    sitePassword: String(env.SITE_PASSWORD || ''), gateSecret: String(env.GATE_SECRET || ''),
     // 합성 샘플 API(WP-C6). 기본 켬, DEMO_FIXTURES=off로 끔.
     demoFixtures: String(env.DEMO_FIXTURES ?? 'on').toLowerCase() !== 'off',
     trendMockMonth: String(env.TREND_MOCK_MONTH || ''), // 학생 MVP Mock 트렌드 조회 월(비우면 현재 월). 시험·데모 시계 고정용

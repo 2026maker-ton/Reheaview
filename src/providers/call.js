@@ -21,7 +21,11 @@ export function reasonOf(e) {
 }
 
 // registry: createRegistry 결과. adapters: {mock, gemini, groq}. killed: Set<provider>. gates: config.providerGate. timeouts: {provider: ms}
-export function createCaller({ registry, gates, killed = new Set(), adapters, ledger, priceOf = () => 0, timeouts = {}, sleepFn = sleep, caps = {}, monthKey = () => new Date().toISOString().slice(0, 7) }) {
+// strict(): 참이면(AI 스위치 켜짐 + AI_REQUIRE_LIVE) Mock·규칙 폴백 결과를 돌려주지 않고 ai_unavailable 오류를 던진다(음성 입출력은 제외: 브라우저 TTS·텍스트 답변이 따로 있다).
+const STRICT_EXEMPT = new Set(['speech.transcribe', 'speech.synthesize']);
+export const aiUnavailable = (operation, reason) => Object.assign(new Error(`AI를 사용할 수 없어 처리하지 못했습니다(${operation}: ${reason || 'mock_route'}). Mock으로 대신 동작하지 않습니다.`), { code: 'ai_unavailable', status: 503, retryable: true, reason: reason || 'mock_route' });
+
+export function createCaller({ registry, gates, killed = new Set(), strict = () => false, adapters, ledger, priceOf = () => 0, timeouts = {}, sleepFn = sleep, caps = {}, monthKey = () => new Date().toISOString().slice(0, 7) }) {
   // 공급자별 월 사용량(인메모리, 재시작 시 0 — 콘솔 지출 한도 병행 필요). caps[provider]={usd,calls}: 초과 시 호출 0건으로 budget_cap 차단.
   const monthly = new Map();
   const usageOf = (provider) => { const m = monthKey(); let u = monthly.get(provider); if (!u || u.month !== m) { u = { month: m, usd: 0, calls: 0 }; monthly.set(provider, u); } return u; };
@@ -38,10 +42,10 @@ export function createCaller({ registry, gates, killed = new Set(), adapters, le
     const p = plan(operation, ctx);
     const t0 = Date.now();
     const trace = (provider, mode, reason, alias) => ({ operation, provider, mode, reason: reason || null, model_alias: alias, latency_ms: Date.now() - t0 });
-    const useMock = async (mode, reason) => ({ value: await (mock || fallback)(), trace: trace('mock', mode, reason, mockAlias), live: false });
+    const useMock = async (mode, reason) => { if (strict() && !STRICT_EXEMPT.has(operation)) throw aiUnavailable(operation, reason); return { value: await (mock || fallback)(), trace: trace('mock', mode, reason, mockAlias), live: false }; };
     if (!p.live) return useMock(p.mode, p.reason);
     // 폴백(장애 후): 정적 결과. 별도 지정이 없으면 mock 결과.
-    const fail = async (reason) => ({ value: await (fallback || mock)(), trace: trace('mock', 'fallback', reason, mockAlias), live: false });
+    const fail = async (reason) => { if (strict() && !STRICT_EXEMPT.has(operation)) throw aiUnavailable(operation, reason); return { value: await (fallback || mock)(), trace: trace('mock', 'fallback', reason, mockAlias), live: false }; };
 
     const adapter = adapters[p.provider];
     const amount = reserve?.amount || 0;

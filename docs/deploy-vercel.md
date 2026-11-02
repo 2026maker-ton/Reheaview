@@ -24,13 +24,11 @@
 1. Vercel에서 이 저장소를 프로젝트로 가져옵니다(Framework: Other, 빌드 명령 없음 — `vercel.json`이 정합니다).
 2. Storage 탭에서 만든 Upstash Redis(`intervuDB`)를 이 프로젝트에 **연결**합니다. 연결하면 `KV_REST_API_URL`·`KV_REST_API_TOKEN`(또는 `UPSTASH_REDIS_REST_URL`·`UPSTASH_REDIS_REST_TOKEN`)이 자동 등록됩니다.
 3. 환경변수(Production)에 `.env`의 값을 등록합니다. **넣지 말 것:** `PORT`, `DEV_TOKEN_A/B`, `STORE`, `DATA_DIR`, `TRENDS_FILE`.
-   **반드시 넣을 것:** `SITE_PASSWORD`(사이트 입장 비밀번호), `GATE_SECRET`(입장 쿠키 서명용 임의 문자열, 32자 이상). 화면 상단 AI 스위치는 비밀번호가 없고 상태는 Redis(`flag:ai_off`)에 저장되어 모든 사용자에게 적용된다. 글꼴(Pretendard·고운바탕)은 jsDelivr·Google Fonts에서 불러오므로 CSP(`vercel.json`)에 두 도메인이 허용돼 있다. `SITE_PASSWORD`가 없으면 Vercel에서는 `/api`가 503(`gate_unconfigured`)으로 닫힙니다. 비밀번호나 `GATE_SECRET`을 바꾸면 이미 입장한 브라우저도 다시 입력해야 합니다.
+   화면 상단 AI 스위치는 비밀번호가 없고 상태는 Redis(`flag:ai_off`)에 저장되어 모든 사용자에게 적용된다. 글꼴(Pretendard·고운바탕)은 jsDelivr·Google Fonts에서 불러오므로 CSP(`vercel.json`)에 두 도메인이 허용돼 있다.
 4. 배포 후 확인: 가입 → 샘플로 면접 한 바퀴 → 새로고침해도 로그인 유지 → 계정 삭제.
 
 ## 입장 비밀번호
-- 서버가 `/api` 전체를 잠급니다(화면 가림이 아님). 통과하면 12시간짜리 HttpOnly·SameSite=Strict·Secure 쿠키가 생기고, 값은 만료시각의 HMAC이라 비밀번호가 들어 있지 않습니다.
-- 잠금 통과 전 요청은 Redis를 건드리지 않습니다. 시도는 IP당 분당 5회·일 30회(Redis로 집계)이고 실패는 0.3초 늦게 응답합니다.
-- 이 잠금은 데모 공개 범위를 좁히는 장치이며 사용자 인증을 대체하지 않습니다(가입·로그인은 그대로 필요).
+- 2026-11-03에 제거했습니다. `SITE_PASSWORD`·`GATE_SECRET` 없이 배포가 열리며, 접근 제어는 회원 가입·로그인(연령·동의 확인)뿐입니다. 공개 전에 Anthropic·Google 콘솔 월 지출 한도를 확인하세요.
 
 ## 알려진 한계
 - **월 Claude 호출 상한(`CLAUDE_MONTHLY_CALL_CAP`)은 서버리스에서 작동하지 않습니다**(요청마다 카운트가 초기화). Anthropic·Google 콘솔에서 월 지출 한도를 직접 거세요. 월 비용 합계(`MONTHLY_API_BUDGET_USD`)는 Redis로 이어지지만 Claude 단가를 설정하지 않으면 0원으로 계산됩니다(`CLAUDE_PRICE_IN_PER_M_USD`, `CLAUDE_PRICE_OUT_PER_M_USD`).

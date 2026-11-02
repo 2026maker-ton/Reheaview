@@ -87,7 +87,7 @@ function scoreChart(tr) {
 // B1. 대학 역량 적합성: 역량별 평균 참고 점수(0~4). 0은 답변에서 다루지 않은 역량.
 function fitChart(fit) {
   if (!fit?.length) return '';
-  const rows = fit.map((c) => `<div class="hbar"><span class="hbar-label">${esc(c.label)}</span><span class="hbar-track"><span class="hbar-fill${c.answers ? '' : ' empty'}" style="width:${(c.avg_score / 4) * 100}%"></span></span><span class="hbar-val">${c.answers ? `${c.avg_score} · 답변 ${c.answers}개` : '다루지 않음'}</span></div>`).join('');
+  const rows = fit.map((c) => `<div class="hbar"><span class="hbar-label">${esc(c.label)}</span><span class="hbar-track"><span class="hbar-fill${c.answers ? '' : ' empty'}" style="width:${(c.avg_score / 4) * 100}%"></span></span><span class="hbar-val">${c.answers ? `${c.avg_score} · 답변 ${c.answers}개` : '질문 미진행'}</span></div>`).join('');
   return `<figure class="chart"><figcaption>대학 역량 적합성${InfoBtn('report.fit')} <span class="chip-note">${esc(FIXED.fitLabel)}</span></figcaption>${rows}
     ${srTable('대학 역량 적합성', ['역량', '평균 참고 점수', '관련 답변 수'], fit.map((c) => [c.label, c.avg_score, c.answers]))}${aiAccordion('fit_comment', BASIS.fit())}</figure>`;
 }

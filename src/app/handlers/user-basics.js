@@ -60,8 +60,7 @@ function validateBasics(body, u) {
 function readyToComplete(u, row) {
   return !!(u?.name?.trim()
     && row?.birth_year
-    && String(row.student_record || '').trim()
-    && String(row.activity_summary || '').trim());
+    && String(row.student_record || '').trim());
 }
 
 export function createUserBasicsHandlers(d) {
@@ -97,7 +96,7 @@ export function createUserBasicsHandlers(d) {
     const next = { ...prev, ...rest, updated_at: now() };
     if (finish && onboarding) {
       if (!readyToComplete(store.getUser(owner), next)) {
-        return err('validation_error', '이름·출생 연도·학생부·활동 요약을 모두 입력해 주세요.', 422);
+        return err('validation_error', '이름·출생 연도·학생부를 모두 입력해 주세요.', 422);
       }
       next.onboarding_completed = true;
     }

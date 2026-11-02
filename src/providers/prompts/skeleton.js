@@ -42,7 +42,7 @@ export function buildWriteMessages({ department, stages = [], persona = '' }) {
 1. ${UNTRUSTED}
 2. 질문은 한 문장, 200자 이내, 물음표 하나로 끝납니다. 근거 자료에 있는 표현만 인용·참조하고, 없는 숫자·학교명·사람 이름·사실을 만들지 않습니다.
 3. 질문은 지정된 초점(focus)과 방식(form)을 따릅니다. 점수·등급·합격·모범답안 같은 말을 쓰지 않습니다.
-4. bridge는 이 단계 답변을 들은 뒤 다음 단계로 넘어가는 면접관 말 한 문장(80자 이내, 물음표 없음)이며 closing의 bridge는 빈 문자열입니다.
+4. bridge는 방금 받은 답변을 인정하는 면접관 말 한 문장(80자 이내, 물음표 없음, 다음 주제 예고 금지)이며 closing의 bridge는 빈 문자열입니다.
 5. 출력은 JSON {"stages":[{"stage":"intro","question":"...","bridge":"..."}]} 하나뿐입니다.
 6. ${BLIND_RULE}${persona ? `
 ${persona}

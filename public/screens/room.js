@@ -180,7 +180,7 @@ async function submit(cutOff) {
   clearInterval(room.timer); clearTimeout(room.nudge);
   if (room.voice) await room.capture?.stop();
   if (room !== current || room.done) return;
-  const text = (room.voice ? room.parts.join(' ') : $('#answerText').value).trim() || '(시간 안에 답변하지 못했습니다.)';
+  const text = (room.voice ? room.parts.join(' ') : $('#answerText').value).trim() || '(답변 없음)';
   const voice_metrics = room.voice ? room.capture?.metrics() : undefined;
   $('#textAnswer').hidden = true; $('#answerBtn').hidden = true;
   setListen('processing', '답변 분석 중...');
@@ -204,7 +204,7 @@ async function submit(cutOff) {
     }
     if (r.state === 'completed' || r.action === 'finish') return endInterview(r.closing || FIXED.closing);
     if (r.action === 'ask_followup') return ask(r.utterance, '', room.stage);
-    return ask(r.question?.text || r.utterance, '', r.question?.stage);
+    return ask(r.question?.text || r.utterance, r.bridge || '', r.question?.stage);
   } catch (err) {
     if (room !== current || room.done) return;
     state.session.state = 'active'; go('room');

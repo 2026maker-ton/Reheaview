@@ -2,8 +2,10 @@
 // 요청/응답 형태(경로 /messages, 헤더 x-api-key, content[].text, usage.input_tokens)는 어댑터 내부 가정이며 [UNVERIFIED] — 실호출 전 공식 문서로 확인한다.
 import { buildClaimsPrompt } from '../prompts/claims.js';
 import { buildSchoolPrompt } from '../prompts/school.js';
-import { buildStageMessages } from '../prompts/interview.js';
-import { buildEvaluationMessages, buildObserveMessages } from '../prompts/evaluation.js';
+import { buildStageMessages, buildTurnMessages } from '../prompts/interview.js';
+import { buildEvaluationMessages, buildObserveMessages, buildGradeMessages } from '../prompts/evaluation.js';
+import { buildCommentMessages } from '../prompts/comment.js';
+import { buildAnswerReviewMessages } from '../prompts/review.js';
 import { buildSkeletonMessages, buildWriteMessages } from '../prompts/skeleton.js';
 
 export function createClaudeAdapter({ apiKey, baseUrl, model, writerModel = '', timeoutMs = 20000, apiVersion = '', thinking = 'off', fetchFn = (...a) => globalThis.fetch(...a) }) {
@@ -64,11 +66,30 @@ export function createClaudeAdapter({ apiKey, baseUrl, model, writerModel = '', 
          (p) => Array.isArray(p?.stages), writerModel);
       return { stages: parsed.stages.slice(0, 8), model: writerModel, usage };
     },
+    // 답변 하나에 대한 꼬리질문 여부·문장·참고 점수(Haiku). 인용·길이·금칙어 검증은 서버가 한다.
+    async decideTurn(input) {
+      const m = writerModel || model;
+      const { parsed, usage } = await json(buildTurnMessages(input), 500, (p) => ['next', 'followup'].includes(p?.action), m);
+      return { ...parsed, model: m, usage };
+    },
     // 최종 평가 초안: 인용 위치 재계산·검증은 서버(llm-eval.js)가 한다.
     // 분업(2026-11-01): Sonnet은 관찰문·인용 후보만 남긴다(level 없음). 채점은 Gemini가 맡는다.
     async observeAnswers({ turns, rubric }) {
       const { parsed, usage } = await json(buildObserveMessages({ turns, rubric }), 2500, (p) => Array.isArray(p?.dimensions));
       return { parsed, model, usage };
+    },
+    // 관찰 → 채점 분업의 채점 단계(같은 모델이 맡는다)와 질문별 한줄평·보고서 한줄평.
+    async gradeObservations({ observations, rubric }) {
+      const { parsed, usage } = await json(buildGradeMessages({ observations, rubric }), 2500, (p) => Array.isArray(p?.dimensions));
+      return { parsed, model, usage };
+    },
+    async reviewAnswers(input) {
+      const { parsed, usage } = await json(buildAnswerReviewMessages(input), 2000, (p) => Array.isArray(p?.turns));
+      return { turns: parsed.turns, model, usage };
+    },
+    async writeComments(input) {
+      const { parsed, usage } = await json(buildCommentMessages(input), 400, (p) => typeof p?.fit_comment === 'string' && typeof p?.dimension_comment === 'string');
+      return { fit_comment: parsed.fit_comment, dimension_comment: parsed.dimension_comment, model, usage };
     },
     async evaluateAnswers({ turns, rubric }) {
       const { parsed, usage } = await json(buildEvaluationMessages({ turns, rubric }), 2500, (p) => Array.isArray(p?.dimensions));

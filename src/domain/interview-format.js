@@ -30,13 +30,47 @@ export const SPOKEN = Object.freeze({
   closing: '이것으로 면접을 마치겠습니다. 수고하셨습니다.',
 });
 
-// 단계 전환 연결 문장(Mock 뱅크). 다음 단계 id → 후보. 시드로 하나를 골라 계획에 저장한다.
+// 단계 전환 연결 문장(Mock 뱅크). 다음 단계 id → 후보. 받은 답변에 대한 인정 말만 둔다(다음 주제 예고는 하지 않는다). 시드로 하나를 골라 계획에 저장한다.
 export const BRIDGES = Object.freeze({
-  academic: ['지원 동기는 잘 알겠습니다. 이제 전공 공부에 대해 여쭤보겠습니다.', '관심 분야가 잘 전해졌습니다. 이어서 학업과 관련된 질문을 드리겠습니다.', '좋습니다. 그럼 전공 이해에 대해 조금 더 들어 보겠습니다.'],
-  experience: ['잘 알겠습니다. 이번에는 학생부·활동 자료에 적힌 활동을 조금 더 자세히 보겠습니다.', '전공에 대한 생각은 충분히 들었습니다. 이제 직접 하신 활동으로 넘어가 보겠습니다.', '좋습니다. 그럼 학생부·활동 자료에 적은 경험을 하나 짚어 보겠습니다.'],
-  reflection: ['직접 하신 부분이 잘 전달됐습니다. 그 과정에서 아쉬웠던 점도 들어 보고 싶습니다.', '활동 내용은 잘 알겠습니다. 이번에는 어려웠던 점과 한계를 여쭤보겠습니다.', '좋습니다. 그 경험을 돌아보면서 질문을 하나 더 드리겠습니다.'],
-  closing: ['잘 알겠습니다. 이제 마지막 질문입니다.', '충분히 들었습니다. 면접을 정리하는 질문을 드리겠습니다.', '좋습니다. 마지막으로 하나만 여쭤보겠습니다.'],
+  academic: ['지원 동기는 잘 알겠습니다.', '관심 분야가 잘 전해졌습니다.', '좋습니다.'],
+  experience: ['잘 알겠습니다.', '전공에 대한 생각은 충분히 들었습니다.', '좋습니다.'],
+  reflection: ['직접 하신 부분이 잘 전달됐습니다.', '활동 내용은 잘 알겠습니다.', '좋습니다.'],
+  closing: ['잘 알겠습니다.', '충분히 들었습니다.', '좋습니다.'],
 });
+
+// "이제 …에 대해 여쭤보겠습니다" 같은 다음 주제 예고 문장은 빼고, 받은 답변을 인정하는 앞문장만 남긴다(모델·저장된 계획의 연결 문장에도 적용).
+const PREVIEW_RE = /(이제|이어서|이번에는|그럼|다음으로|마지막으로|다음 질문|넘어가|여쭤보|여쭙|들어 보|들어보|묻겠|드리겠|얘기해|이야기해|짚어 보|말씀해)/;
+export function ackOnly(text) {
+  const sentences = String(text || '').match(/[^.!。]+[.!。]?/g) || [];
+  return sentences.map((s) => s.trim()).filter((s) => s && !PREVIEW_RE.test(s)).join(' ');
+}
+
+// 답변 상태별 면접관 인정 말(2026-11-03). 방금 받은 답변의 상태를 규칙으로 판별해 그 상태의 문장 중 하나를 고른다. 다음 주제를 예고하지 않는다.
+export const ACK_BANK = Object.freeze({
+  noanswer: ['답변을 못 하셨군요, 괜찮습니다.', '말씀이 없으셨네요, 괜찮습니다.'],
+  cutoff: ['정해진 시간 안에 말씀해 주셔서 잘 들었습니다.', '시간이 다 돼서 여기까지 듣겠습니다.'],
+  hesitant: ['괜찮습니다, 편하게 말씀해 주셔도 됩니다.', '생각을 정리하시느라 쉽지 않으셨겠네요, 괜찮습니다.'],
+  brief: ['핵심만 간단히 말씀해 주셨네요, 알겠습니다.', '네, 짧게 말씀해 주셨지만 알겠습니다.'],
+  followup: ['보충해 주셔서 이해가 됐습니다.', '덧붙여 주셔서 더 잘 알겠습니다.'],
+  detailed: ['구체적으로 말씀해 주셔서 잘 알겠습니다.', '직접 하신 일이 잘 전달됐습니다.', '경험을 차분히 설명해 주셨네요.'],
+});
+const HESITANT_RE = /잘\s*모르|기억이\s*(잘\s*)?안|기억이\s*나지|생각이\s*안|음\.{2,}|어\.{2,}/;
+export function answerState({ text = '', cut_off = false, followup = false } = {}) {
+  const t = String(text).trim();
+  const n = [...t].length;
+  if (!t || /^\(답변 없음\)$/.test(t)) return 'noanswer';
+  if (cut_off) return 'cutoff';
+  if (HESITANT_RE.test(t)) return 'hesitant';
+  if (followup) return 'followup';
+  if (n < 40) return 'brief';
+  if (n >= 120 && /\d|직접|제가|결과|비교|측정/.test(t)) return 'detailed';
+  return 'normal';
+}
+// 상태가 normal이면 단계별 연결 문장(계획에 동결한 것)을 쓰고, 그 밖의 상태는 상태 문장을 시드로 고른다.
+export function pickAck(state, fallback = '', seed = 0) {
+  const bank = ACK_BANK[state];
+  return bank ? bank[(seed >>> 0) % bank.length] : ackOnly(fallback);
+}
 
 const LIMIT_RE = /한계|못했|못한|아쉬|실패|단정할 수 없|부족|통제하지|검증하지|않았|배제할 수 없/;
 const ACTION_RE = /제작|수집|구현|설계|측정|개발|비교|분석|적용|수행|진행|탐구|조사/;
@@ -120,7 +154,7 @@ export function validateModelStages(raw, evidence, { promptVersion, extraText = 
     const v = validateDesignedQuestions({ questions: [{ text: st.question, evidence_ids: def.evidence.length ? allowedIds : ['stage-free'], target_competency: def.primary }] }, evForCheck, { max: 1, promptVersion, extraText });
     // 근거 단계는 허용 접두사 id만, 도입·마무리는 id가 없어야 한다(계약 위반은 그 단계만 폐기).
     if (!v.questions.length || allowedIds.length !== ids.length) { dropped += 1; continue; }
-    const bridge = typeof st.bridge === 'string' ? st.bridge.trim() : '';
+    const bridge = typeof st.bridge === 'string' ? ackOnly(st.bridge.trim()) : '';
     const bridgeOk = bridge && [...bridge].length <= 80 && !/[?？\n]/.test(bridge) && !BRIDGE_BANNED.test(bridge) && novelFacts(bridge, all).length === 0;
     out[def.id] = { text: v.questions[0].text, evidence_ids: def.evidence.length ? allowedIds : [], ...(bridgeOk ? { bridge } : {}) };
   }
@@ -131,12 +165,21 @@ export function validateModelStages(raw, evidence, { promptVersion, extraText = 
 export function buildGeneralPlan({ department, competencies = [], claims = [], limits = [], modelStages = {}, seed = 0, generator = 'rule', provider_trace = [] }) {
   const rule = ruleStageQuestions({ department, competencies, claims, limits });
   const byId = new Map([...competencies.map((c) => [c.id, { kind: 'institution', id: c.id, label: c.label, quote: c.quote || null, status: c.status || null, source_title: c.source_title || null, url: c.url || null }]), ...[...claims, ...limits].map((c) => [c.id, { kind: 'application', id: c.id, quote: c.quote, start_cp: c.start_cp, end_cp: c.end_cp, gaps: c.gaps || [] }])]);
+  // 모든 대학 역량을 단계에 나눠 맡긴다(라운드 로빈): 보고서의 역량 적합성이 '다루지 않음' 없이 모든 역량을 답변 기준으로 평가한다.
+  // 도입(지원 동기)·마무리(향후 계획)는 역량 질문이 아니므로 학업·경험·성찰 단계가 맡는다.
+  const carriers = GENERAL_STAGES.map((g) => ['academic', 'experience', 'reflection'].includes(g.id));
+  const owned = GENERAL_STAGES.map(() => []);
+  const slots = GENERAL_STAGES.map((_, i) => i).filter((i) => carriers[i]);
+  competencies.forEach((c, j) => owned[slots[j % slots.length]].push(c));
   const stages = GENERAL_STAGES.map((def, i) => {
     const m = modelStages[def.id];
     const q = m || rule[def.id];
     const next = GENERAL_STAGES[i + 1];
+    const mine = owned[i];
+    // 규칙 질문은 맡은 역량 이름을 앞에 붙여 그 역량을 묻는 질문임을 드러낸다(모델 문장도 역량 이름이 없으면 붙인다).
+    const lead = mine[0] && !q.text.includes(mine[0].label) && [...q.text].length <= 150 ? `‘${mine[0].label}’${gwa(mine[0].label)} 관련해, ` : '';
     return {
-      id: `stage-${def.id}`, stage: def.id, stage_label: def.label, text: q.text,
+      id: `stage-${def.id}`, stage: def.id, stage_label: def.label, text: lead + q.text, competency_ids: mine.map((c) => c.id),
       primary: def.primary, secondary: [...def.secondary], followup_allowed: def.followup,
       evidence: q.evidence_ids.map((id) => byId.get(id)).filter(Boolean),
       generator: m ? generator : 'rule',
@@ -204,7 +247,7 @@ export function validTurnScore(s) {
 export function competencyFit(competencies = [], turns = []) {
   return competencies.map((c) => {
     const words = String(c.label).split(/[\s·,/()]+/).map((w) => w.replace(/(역량|능력|태도|적합성|이해|적|의|과|와|및)$/u, '')).filter((w) => [...w].length >= 2);
-    const linked = turns.filter((t) => (t.evidence_ids || []).includes(c.id));
+    const linked = turns.filter((t) => (t.evidence_ids || []).includes(c.id) || (t.competency_ids || []).includes(c.id));
     const keyword = turns.filter((t) => words.some((w) => String(t.text || '').includes(w)));
     const hits = [...new Map([...linked, ...keyword].map((t) => [t.turn_id, t])).values()];
     const avg = hits.length ? hits.reduce((s, t) => s + (t.turn_score ? (t.turn_score.relevance + t.turn_score.specificity + t.turn_score.reasoning) / 3 : 0), 0) / hits.length : 0;
@@ -215,7 +258,7 @@ export function competencyFit(competencies = [], turns = []) {
 // 세션용 질문 목록(서버 내부 형식). application_evidence는 기존 보고서·주장 연결 코드가 읽는다.
 export const stageQuestions = (plan) => (plan?.stages || []).map((s) => ({
   id: s.id, text: s.text, primary: s.primary, secondary: s.secondary, stage: s.stage, stage_label: s.stage_label,
-  followup_allowed: s.followup_allowed, bridge: s.bridge, evidence: s.evidence,
+  followup_allowed: s.followup_allowed, bridge: s.bridge, evidence: s.evidence, competency_ids: s.competency_ids || [],
   ...(s.evidence.some((e) => e.kind === 'application') ? { application_evidence: s.evidence.filter((e) => e.kind === 'application') } : {}),
   followup_dimensions: [s.primary],
 }));

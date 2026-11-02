@@ -77,7 +77,7 @@
 
 ## 2. 사용자 전체 여정
 
-**(현재 여정, 2026-10-31) 입장 비밀번호(설정 시) → 가입·로그인 → 대시보드 → 학교·학과·자료·지원서 입력(샘플 가능) → 근거 확인(지원서 주장·학교 분석·검색·렌치 수정) → 승인(질문 5개 동결) → 면접 준비(마이크) → 일반 면접 5단계(자동 녹음) → 결과.** 아래 구 여정(재연습·비교·기록)은 UI에서 숨겼다.
+**(현재 여정, 2026-11-03: 입장 비밀번호 제거) 가입·로그인 → 대시보드 → 학교·학과·자료·지원서 입력(샘플 가능) → 근거 확인(지원서 주장·학교 분석·검색·렌치 수정) → 승인(질문 5개 동결) → 면접 준비(마이크) → 일반 면접 5단계(자동 녹음) → 결과.** 아래 구 여정(재연습·비교·기록)은 UI에서 숨겼다.
 
 ### 2.1 지원 정보 입력
 
@@ -201,7 +201,7 @@
 
 기존의 '입력·설정·진행을 한 화면 양쪽에 동시에 표시'하는 UI는 새 목표 구조가 아니다. 다음 화면으로 전면 재설계한다.
 
-**현재 UI(2026-11-03): 소개 랜딩 + 앱 8화면, 실제 입력 우선** — 랜딩(`#/landing`)에서 연습 공간으로 진입하며, 앱은 로그인, **내 정보**(회원 기본 정보·면접 데이터 폐기), 대시보드(지원 정보→근거 확인→면접, 새 면접), 지원 정보(본인 자료가 먼저, 예시는 아래), 근거 확인(역량·면접 형태 렌치, 검색, 지원서 주장, 질문 계획), 면접 준비(마이크·답변 방식), 면접실(질문만), 결과다. 비어 있는 학생부 칸에는 내 정보의 학생부·활동을 불러온다. 회원 첫 로그인 시 내 정보에서 이름→출생 연도→학생부→활동 요약 4단계 온보딩을 거친다(수정 시 비밀번호). 입장 비밀번호는 별도 오버레이다. 아래 표 중 재연습 비교·기록·관리자·피드백의 재연습 요소와 "고입/대입 두 여정"·"연령 2택 동의"·"면접 설정의 시간·성향"은 이전 구상이며 현재 UI에는 없다. 이하 날짜가 붙은 7화면 검증 기록은 랜딩 분리 전 이력이다.
+**현재 UI(2026-11-03): 소개 랜딩 + 앱 8화면, 실제 입력 우선** — 랜딩(`#/landing`)에서 연습 공간으로 진입하며, 앱은 로그인, **내 정보**(회원 기본 정보·면접 데이터 폐기), 대시보드(지원 정보→근거 확인→면접, 새 면접), 지원 정보(본인 자료가 먼저, 예시는 아래), 근거 확인(역량·면접 형태 렌치, 검색, 지원서 주장, 질문 계획), 면접 준비(마이크·답변 방식), 면접실(질문만), 결과다. 비어 있는 학생부 칸에는 내 정보의 학생부·활동을 불러온다. 회원 첫 로그인 시 내 정보에서 이름→출생 연도→학생부 3단계 온보딩을 거친다(학생부 단계에서 파일을 올리면 글자만 뽑아 칸에 넣고 원본은 저장하지 않는다; 활동·특기 단계는 2026-11-03 제거, 이미 저장된 값은 유지; 수정 시 비밀번호). 입장 비밀번호 화면·서버 잠금은 2026-11-03에 제거했다. 아래 표 중 재연습 비교·기록·관리자·피드백의 재연습 요소와 "고입/대입 두 여정"·"연령 2택 동의"·"면접 설정의 시간·성향"은 이전 구상이며 현재 UI에는 없다. 이하 날짜가 붙은 7화면 검증 기록은 랜딩 분리 전 이력이다.
 
 | 화면 | 주요 요소 | 반드시 제거·축소할 것 |
 |---|---|---|
@@ -235,7 +235,7 @@
 - **Evaluation:** 버전 관리된 루브릭·평가 근거 검증.
 - **Transfer:** 새 질문 생성·기존 대비 비교.
 - **Admin Trends:** 월간 역량 게시·검수.
-- **Storage/Auth(2026-10-31):** 서버 실행(`npm start`)은 파일 저장(`data/store/`, 단일 프로세스 가정), 테스트는 인메모리, Vercel은 Upstash Redis(`src/vercel/`, 사용자별 묶음 저장·잠금), Workers는 DO 스냅샷(미검증). 인증은 이메일·비밀번호 로그인(PBKDF2-SHA256, 토큰은 해시만 저장, 7일)이며 `DEV_TOKEN_A/B`는 테스트·개발용이다. 데모용 입장 비밀번호(`SITE_PASSWORD`)는 서버가 `/api` 전체를 잠근다. 이메일 인증은 없다.
+- **Storage/Auth(2026-10-31):** 서버 실행(`npm start`)은 파일 저장(`data/store/`, 단일 프로세스 가정), 테스트는 인메모리, Vercel은 Upstash Redis(`src/vercel/`, 사용자별 묶음 저장·잠금), Workers는 DO 스냅샷(미검증). 인증은 이메일·비밀번호 로그인(PBKDF2-SHA256, 토큰은 해시만 저장, 7일)이며 `DEV_TOKEN_A/B`는 테스트·개발용이다. 데모용 입장 비밀번호(`SITE_PASSWORD`) 잠금은 2026-11-03에 제거했고 Vercel도 그 변수 없이 열린다(가입·로그인·연령·동의·블라인드 검사는 유지). 이메일 인증은 없다.
 
 ### 4.2 LLM과 음성 공급자 — 현재 구현 vs 목표 설계
 
@@ -412,7 +412,7 @@
 | 공급자 | Mock(기본·폴백) · **Claude Sonnet 5.5**(주장 분석·질문 구조·평가) · **Claude Haiku 5.5**(학교 분석·문장 작성) · **Gemini**(학교·전형 검색, 합성·샘플 꼬리질문 판단) · Groq Whisper(STT) · 브라우저 SpeechSynthesis(TTS) · 보류(기본 꺼짐): DeepSeek·ElevenLabs. 호출은 모두 게이트(`providers/gate.js`)·예산·폴백을 거친다 | `src/providers/*`, `src/config.js` |
 | 공식 자료 수집 | `src/domain/fetcher.js`(허용 도메인 기본 비어 있음=꺼짐, DNS 재검사, 수동 리디렉션, robots, 발췌). 실제 네트워크 수집 미실행 | `docs/official-fetch.md`, `tests/api/c2-fetcher.test.mjs` |
 | 배포 | Vercel: 정적 `public/` + 함수 `api/handler.js`(`vercel.json` 리라이트) + Upstash Redis, `docs/deploy-vercel.md`. **실배포 동작 확인은 미완** `[UNVERIFIED]`. Pages 워크플로(`pages.yml`)·`project-guard.yml`·`wrangler.toml`(Workers)은 코드만 있고 로그인 미연결·미배포 | `api/handler.js`, `vercel.json`, `.github/workflows/*` |
-| 환경변수 | `.env.example` 기준(2026-10-31): `SITE_PASSWORD`·`GATE_SECRET`(입장 잠금), `CLAUDE_API_KEY`·`CLAUDE_MODEL`·`CLAUDE_WRITER_MODEL`·`CLAUDE_THINKING`·`CLAUDE_LIVE_ACK`·`CLAUDE_REAL_DATA_ACK`, `GEMINI_*`(`GEMINI_GROUNDING_ACK`·`GEMINI_FREE_ONLY`·`GEMINI_THINKING_LEVEL`), `GROQ_*`, `ROUTE_*`(operation별 공급자), `ANSWER_SECONDS`, `KV_REST_API_URL/TOKEN`(Vercel), `DEV_TOKEN_A/B`(테스트·개발용). 값은 문서에 쓰지 않는다 | `.env.example`, `src/config.js` |
+| 환경변수 | `.env.example` 기준(2026-10-31): `CLAUDE_API_KEY`·`CLAUDE_MODEL`·`CLAUDE_WRITER_MODEL`·`CLAUDE_THINKING`·`CLAUDE_LIVE_ACK`·`CLAUDE_REAL_DATA_ACK`, `GEMINI_*`(`GEMINI_GROUNDING_ACK`·`GEMINI_FREE_ONLY`·`GEMINI_THINKING_LEVEL`), `GROQ_*`, `ROUTE_*`(operation별 공급자), `ANSWER_SECONDS`, `KV_REST_API_URL/TOKEN`(Vercel), `DEV_TOKEN_A/B`(테스트·개발용). 값은 문서에 쓰지 않는다 | `.env.example`, `src/config.js` |
 | 로컬 `.env` 상태 | 2026-10-31: Claude·Gemini·Groq 키와 입장 비밀번호 설정이 개발자 로컬에 있다(값은 기록하지 않음). `.env`는 `.gitignore` 대상이며 커밋된 적 없다. 최초 점검 시점(`79e803c`)의 `GEMINI_ALLOW_UNPAID`·`GEMINI_PAID_ACK` 상태는 이력이다 | `.gitignore` |
 
 
@@ -540,7 +540,7 @@ Gemini·Groq·Grounding **실호출 결과는 이 표의 근거가 아니다**(�
 | 만 18세 이상만 가입, 가입 동의에 Groq 음성 전송 고지 포함, 게이트 `ctx.adult` | `[DONE]` | `consents.js`, `stt.js`, `gate.js`, `s1-school.test.mjs` | 연령은 자기 신고, 법률 검토 없음 |
 | 고입 실입력 422, UI 대입 여정 하나 | `[DONE]` | `profiles.js`, `check-project.mjs` | — |
 | 일반 면접 5단계 고정(도입→학업·전공→경험 검증→문제 해결·성찰→마무리), 특수 5종은 정의만·선택 불가(422) | `[DONE]`(규칙·스텁) | `src/domain/interview-format.js`, `s2-questions.test.mjs` | 특수 면접 구현은 향후 |
-| 본질문·근거·연결 문장 승인 시 동결(`v.plan.general`), 단계별 근거 규칙(역량→학업, 주장→경험, 한계 문장→성찰), 모델 단계 검증·위반 단계만 규칙 대체 | `[DONE]`(스텁) | `profiles.js designPlan`, `validateModelStages` | 질문 품질 사람 평가 없음 |
+| 본질문·근거·연결 문장(받은 답변을 인정하는 앞문장만; "이제 …에 대해 여쭤보겠습니다" 식 다음 주제 예고는 `ackOnly`로 제거, 2026-11-03) 승인 시 동결(`v.plan.general`), 단계별 근거 규칙(역량→학업, 주장→경험, 한계 문장→성찰), 모델 단계 검증·위반 단계만 규칙 대체 | `[DONE]`(스텁) | `profiles.js designPlan`, `validateModelStages` | 질문 품질 사람 평가 없음 |
 | 렌치 커스텀(역량 ≤8·20자, 면접 형태는 일반만), 승인 후 변경은 재승인 | `[DONE]` | `PATCH /profiles/:id/customization`, E2E | — |
 | 학교·전형 검색 `school.search`(Grounding, `GEMINI_GROUNDING_ACK`+무료 전용 해제 필요), 결과 텍스트만 150일 보관·링크/추천 검색어 비저장·질문 근거 비투입 | `[PARTIAL]` | `searchSchool`, `docs/decisions/2026-10-31-grounding-retention.md`, 스텁 시험 | 실검색 `[UNVERIFIED]`, 개인정보 안내에 Google 30일 보관 반영 `[TODO]` |
 | 면접실: 질문만 표시(근거·진행률 없음), 자동 녹음(Web Audio VAD), 발화 후 3초 정적 → 구간 전사 → 종결어미(…다/…요/…죠/…까)로 끝났으면 완료(브라우저 규칙, AI 호출 없음), 질문별 60초 제한·마감 문장, "네 답변 잘 들었습니다."를 말한 뒤 결과 분석 화면, 꼬리질문 결정(도입·마무리 없음, 질문당 1개). 단계 연결 문장("이제 … 여쭤보겠습니다")은 면접실에서 말하지 않는다 | `[PARTIAL]` | `public/screens/room.js`, `public/core/vad.js`, `public/core/sentence.js`, `commands.js generalTurn`, E2E(텍스트 모드) | **실제 마이크 VAD·전사·완료 판단은 실기기 미검증** `[UNVERIFIED]`, 임계값 조정 필요 |
@@ -548,7 +548,7 @@ Gemini·Groq·Grounding **실호출 결과는 이 표의 근거가 아니다**(�
 | 실시간 참고 점수(`turn_score`, 면접 중 비공개)·결과 화면(질문·답변 본문, 꼬리질문 구분, i 버튼 근거, SVG 차트: 점수·역량 적합성·차원·음성), 중복 섹션 제거 | `[DONE]`(Mock E2E) | `feedback.js`, `competencyFit`, E2E | 적합성은 그 역량을 묻도록 만든 질문의 답변 점수이고, 그런 질문이 없을 때만 역량 이름 일치로 센다. 규칙 폴백 점수는 질문·근거와 소재가 다르면 1이다. Gemini 의미 채점은 유료 확인·REAL_DATA_ACK가 있을 때만 실데이터에 적용된다. 차트 `?`는 박스 하단 아코디언·점프 버튼으로 이동, 음성 박스는 질문별 음량 그래프 포함(`vol-list`) |
 | 서버 실행 기본 저장소 = 파일(`data/store/state.json`): 개발 서버 재시작에도 계정·로그인·기록 유지(재시작 시 로그인 화면으로 튕기던 문제 수정), 만료 로그인은 사유 안내 | `[DONE]` | `src/node/server.js startServer`, `tests/api/auth.test.mjs` | 단일 프로세스 가정. 배포용 DB는 미정 |
 | **공급자 배치(2026-11-01, 갱신):** Claude Sonnet(`claude-sonnet-5-5`) = 지원서 주장 분석(`claims.extract`)·**질문 구조(단계별 근거·초점·방식)만 설계**(`questions.design`)·최종 평가 관찰(`evaluation.observe`, 관찰문·인용 후보만, level 없음). Claude Haiku(`claude-haiku-5-5`, `CLAUDE_WRITER_MODEL`) = 학교 자료 인재상·역량 추출(`school.analyze`, 웹 검색 아님: 입력한 글에서만 뽑음, 샘플 10건 실호출 확인)·구조와 근거 원문으로 **질문·연결 문장 작성**(`questions.write`). Gemini = 학교·전형 검색(`school.search`)·꼬리질문(`dialogue.next`)·평가 채점(`evaluation.generate`, Sonnet 관찰 안에서 level만). 서버 검증·폴백은 공급자와 무관하게 동일 | `[PARTIAL]` | `claude.js`, `prompts/skeleton.js`, `validateSkeleton`, `b3-claude-claims.test.mjs`(스텁), 서울대 샘플 2단계 설계 실호출 1회 성공 | 나머지 operation 실호출·질문 품질 `[UNVERIFIED]`, Claude 단가 미설정(월 호출 500회 상한만 집행) |
-| 사이트 입장 비밀번호(데모 잠금): 서버가 /api 전체를 잠금(`gate_required` 401), HttpOnly·SameSite=Strict 쿠키(12h, HMAC), IP당 분당 5·일 30회 제한, Vercel은 비밀번호 없으면 503 닫힘 | `[DONE]` | `src/app/gate.js`, `tests/api/gate.test.mjs`, `tests/api/vercel-store.test.mjs` | 비밀번호는 환경변수(`SITE_PASSWORD`,`GATE_SECRET`)로만 둔다. 사용자 인증 대체 아님 |
+| 사이트 입장 비밀번호(데모 잠금) **제거(2026-11-03, 사용자 지시)**: 화면(`gate.js`)·서버 `/api` 잠금·Vercel 503 닫힘을 없앴다. 가입·로그인·연령·AI 동의·블라인드 검사는 그대로 | `[DONE]` | `tests/api/vercel-store.test.mjs` | 접근 제어는 회원 인증뿐이다. 공개 배포 전 공급자 콘솔 지출 한도 확인 |
 | Vercel 배포: 정적 `public/` + 함수 `api/handler.js`(리라이트) + Upstash Redis(사용자별 묶음 저장·잠금·시도 제한), `src/server.js`는 `.vercelignore`로 제외 | `[PARTIAL]` | `src/vercel/*`, `api/handler.js`, `vercel.json`, `tests/api/vercel-store.test.mjs`, `docs/deploy-vercel.md` | **실배포 동작 미확인.** Claude 월 상한은 서버리스에서 작동하지 않아 공급자 콘솔 지출 한도 필요 |
 | 비용 절감: Claude 생각(thinking) 기본 끔(`CLAUDE_THINKING=off`; 실측 Sonnet 출력 622→192토큰), 같은 자료·근거의 학교 분석·질문 계획 재사용(`refresh`로 다시 실행), 화면 새로고침 아이콘 | `[DONE]`(스텁 시험 + 실호출 2건) | `adapters/claude.js`, `profiles.js`(`analysis_cache`·`plan_cache`, 응답에 비노출), `tests/api/b3-claude-claims.test.mjs` | 생각을 끈 평가의 품질은 미검증, Gemini 생각 수준은 값 미확인으로 기본 꺼짐 |
 | AI 기능 스위치(화면 상단, 비밀번호 없음): 끄면 모든 외부 AI 호출을 킬 스위치와 같게 막고 규칙 기반 기본 동작만 남김. 입장 잠금 뒤에서만 동작, IP당 분당 20·일 200회 제한. Node는 메모리(재시작 시 켜짐), Vercel은 Redis `flag:ai_off` | `[DONE]`(스텁 시험) | `src/app/core.js`(`aiSwitch`·`isKilled`), `src/app/router.js`, `src/vercel/handler.js`, `public/screens/aiswitch.js`, `tests/api/ai-switch.test.mjs`, `tests/api/vercel-store.test.mjs` | 누구나 켜고 끌 수 있는 전역 스위치(역할 모델 없음, DEBT-2). 끄면 전 사용자의 AI가 꺼진다 |

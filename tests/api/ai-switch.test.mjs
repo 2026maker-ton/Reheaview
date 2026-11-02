@@ -41,18 +41,13 @@ test('ai switch: anyone behind the gate can toggle; off blocks all provider call
   });
 });
 
-test('ai switch: rate limited per IP; sits behind the entry gate', async () => {
+test('ai switch: rate limited per IP', async () => {
   await withProviders({ env: { ...CLAUDE }, respond }, async (ctx) => {
     for (let i = 0; i < 20; i++) assert.equal((await sw(ctx, { on: true }, '7.7.7.7')).status, 200);
     assert.equal((await sw(ctx, { on: true }, '7.7.7.7')).status, 429);
     assert.equal((await sw(ctx, { on: true }, '8.8.8.8')).status, 200);
   });
-  await withProviders({ env: { ...CLAUDE, SITE_PASSWORD: 'gate-pw', GATE_SECRET: 'g' }, respond }, async (ctx) => {
-    const r = await fetch(`${ctx.base}/api/v1/ai-switch`);
-    assert.equal(r.status, 401);
-    assert.equal((await r.json()).code, 'gate_required');
-    assert.equal((await sw(ctx, { on: false })).status, 401);
-  });
+
 });
 
 const open = async (env) => {

@@ -41,7 +41,7 @@ export async function loadRecent() {
       <div class="list-item">
         <div><strong>${esc(fmtDate(s.created_at))}</strong><div class="meta">${esc(String(s.question_count || 0))}문항</div></div>
         <button class="ghost small" type="button" data-open-session="${esc(s.id)}">결과 보기</button>
-      </div>`).join('') : '<p class="missing">아직 마친 면접이 없습니다. 새 면접을 시작하면 결과가 여기에 쌓입니다.</p>';
+      </div>`).join('') : '<div class="empty-state"><p><strong>아직 마친 면접이 없습니다</strong></p><p class="fine">새 면접을 시작하면 결과가 여기에 쌓입니다.</p></div>';
     $$('[data-open-session]').forEach((b) => b.addEventListener('click', () => resumeSession(b.dataset.openSession)));
   } catch (err) {
     box.closest('.card').hidden = false;

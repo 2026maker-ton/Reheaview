@@ -30,7 +30,7 @@ test('user basics: onboarding without password; edit requires password; guest fo
     assert.equal(g.data.onboarding_completed, false);
     const step = await c('/api/v1/user/basics', {
       method: 'PATCH', token: s.data.token,
-      body: { onboarding: true, birth_year: 2005, student_record: '세특 요약', activity_summary: '동아리', finish_onboarding: true, name: '김지원' },
+      body: { onboarding: true, birth_year: 2005, student_record: '세특 요약', finish_onboarding: true, name: '김지원' },
     });
     assert.equal(step.status, 200, JSON.stringify(step.data));
     assert.equal(step.data.basics.onboarding_completed, true);

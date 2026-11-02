@@ -3,6 +3,7 @@ import { busyButton } from '../core/busy.js';
 import { $, esc, setError } from '../core/format.js';
 import { toast } from '../core/toast.js';
 import { api } from '../core/api.js';
+import { extractFile } from '../core/extract.js';
 import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { renderEvidence } from './evidence.js';
@@ -30,7 +31,6 @@ window.addEventListener('hashchange', () => { if (location.hash === '#/applicati
 if (location.hash === '#/application') fillFixtureList();
 
 // 학생부 파일에서 추출한 글을 경험 자료 칸에 붙인다.
-const MAX_FILE = 5 * 1024 * 1024;
 let uploadKind = null;
 document.querySelectorAll('[data-upload]').forEach((b) => b.addEventListener('click', () => { uploadKind = b.dataset.upload; $('#fileInput').value = ''; $('#fileInput').click(); }));
 $('#fileInput')?.addEventListener('change', async (e) => {
@@ -38,11 +38,9 @@ $('#fileInput')?.addEventListener('change', async (e) => {
   if (!file) return;
   const status = $('#uploadStatus');
   setError('#applicationError', '');
-  if (file.size > MAX_FILE) { status.textContent = ''; return setError('#applicationError', '파일은 5MB 이하만 올릴 수 있습니다.'); }
   status.textContent = `${file.name} 읽는 중…`;
   try {
-    const content_base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(new Error('파일을 읽지 못했습니다.')); r.readAsDataURL(file); });
-    const out = await api('/documents/extract', { method: 'POST', idempotent: true, body: { filename: file.name, mime_type: file.type, content_base64 } });
+    const out = await extractFile(file);
     const area = $('#applicationText');
     area.value = [area.value.trim(), out.text.trim()].filter(Boolean).join('\n\n');
     if (fixture) setFixture(null);

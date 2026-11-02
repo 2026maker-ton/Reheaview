@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { withProviders, okReply, rawReply } from '../helpers/provider-stub.mjs';
 import { createStore } from '../../src/store/memory.js';
 import { getFixture } from '../../src/domain/fixtures.js';
-import { GENERAL_STAGES, SPOKEN, limitationSentences, competencyFit } from '../../src/domain/interview-format.js';
+import { GENERAL_STAGES, BRIDGES, ACK_BANK, answerState, SPOKEN, ackOnly, limitationSentences, competencyFit } from '../../src/domain/interview-format.js';
 import { endsSentence } from '../../public/core/sentence.js';
 
 const fx = getFixture('smp-snu-bio');
@@ -56,6 +56,8 @@ test('5-stage plan: model stages validated per stage; invalid stages fall back t
     assert.equal(by.reflection.generator, 'rule', 'fabricated number -> rule template');
     assert.equal(by.closing.generator, 'rule', 'closing with evidence id -> rule template');
     assert.equal(by.intro.bridge, '지원 이유는 잘 들었습니다.');
+    assert.ok(BRIDGES.experience.includes(by.academic.bridge), 'preview-only model bridge is replaced by an acknowledgement');
+    assert.equal(ackOnly('지원 동기는 잘 알겠습니다. 이제 전공 공부에 대해 여쭤보겠습니다.'), '지원 동기는 잘 알겠습니다.');
     assert.equal(by.closing.bridge, null);
     assert.ok(!ctx.calls.some((c) => JSON.stringify(c.body).includes('트렌드 조회가 필요한지')), 'trends.decide is not used by the general plan');
   });
@@ -121,7 +123,13 @@ test('5-stage turn flow: opening + ack, intro never follows up, model follow-up 
     assert.equal(t1.data.ack, SPOKEN.ack);
     assert.equal(t1.data.action, 'next_question', 'intro stage has no follow-up even if the model asks');
     assert.equal(t1.data.utterance, t1.data.question.text);
-    assert.equal(t1.data.bridge, undefined);
+    assert.ok([...BRIDGES.academic, ...Object.values(ACK_BANK).flat()].includes(t1.data.bridge), 'state-based acknowledgement, no next-topic preview');
+    assert.equal(answerState({ text: '' }), 'noanswer');
+    assert.equal(answerState({ text: '(답변 없음)' }), 'noanswer');
+    assert.equal(answerState({ text: '짧아요' }), 'brief');
+    assert.equal(answerState({ text: '저는 이 일을 직접 했습니다. '.repeat(8) }), 'detailed');
+    assert.equal(answerState({ text: '긴 답변입니다. '.repeat(5), cut_off: true }), 'cutoff');
+    assert.ok(!/이제|여쭤보|에 대해/.test(t1.data.bridge));
     const t2 = await cmd('turn.text', { text: '탐구 역량을 기르려고 실험 보고서를 꾸준히 썼습니다.' });
     assert.equal(t2.data.action, 'ask_followup');
     const t3 = await cmd('turn.text', { text: '제가 측정 시간을 고정하는 기준을 정했습니다.', cut_off: true, voice_metrics: { speech_ratio: 0.7, pitch_jitter: 9, silence_count: 2, timeline: { total_seconds: 5, envelope: [0, 50, 100], segments: [{ k: 'speech', s: 0.5, e: 4 }] } } });

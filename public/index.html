@@ -15,18 +15,6 @@
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
 
-<!-- 입장 비밀번호: 서버가 /api를 잠그고, 통과하면 앱을 보여 준다 -->
-<section id="gateScreen" class="gate" aria-labelledby="gateTitle" hidden>
-  <form class="card form-card gate-card" id="gateForm" novalidate>
-    <img class="entry-logo" src="/logo.svg" alt="" width="64" height="64" />
-    <h1 id="gateTitle">Reheaview</h1>
-    <p class="fine">나의 경험을, 나의 답변으로.</p>
-    <label class="field"><span>입장 비밀번호</span><input id="gatePassword" type="password" autocomplete="off" maxlength="200" required /></label>
-    <div class="actions"><button class="primary" type="submit" id="gateBtn">입장</button></div>
-    <p class="fine" id="gateError" role="alert"></p>
-  </form>
-</section>
-
 <header class="topbar">
   <a class="brand" href="#/dashboard" aria-label="Reheaview 메인으로 이동">
     <img class="brand-logo" src="/logo.svg" alt="" width="42" height="42" />
@@ -36,7 +24,6 @@
   <div class="topbar-right">
     <a class="privacy-link" href="/privacy.html" target="_blank" rel="noopener">개인정보 보호 정책</a>
     <button class="ai-switch" id="aiSwitch" type="button" role="switch" aria-checked="true" aria-label="AI 기능" title="AI 기능 켜기·끄기" hidden><span class="ai-switch-track" aria-hidden="true"><span class="ai-switch-knob"></span></span><span class="ai-switch-label">AI</span></button>
-    <span class="mode-chip" id="modeChip" role="status" aria-live="polite">모드 확인 중…</span>
     <div class="user-menu" id="userMenu" hidden>
       <span class="user-name" id="userName"></span>
       <button class="ghost small" type="button" id="guestLoginBtn" hidden>로그인·가입</button>
@@ -89,7 +76,7 @@
         </div>
         <div class="actions"><button class="primary" type="submit" id="signupBtn">가입하고 시작</button></div>
       </form>
-      <div class="guest-box" id="guestBox" hidden>
+      <div class="guest-box" id="guestBox">
         <p class="fine">게스트로 가입 없이 기본 기능을 체험할 수 있습니다. AI를 켜면 연령 확인·처리 동의 후 실제 AI를 사용할 수 있습니다. AI를 끄면 Mock으로 연습합니다.</p>
         <button class="ghost" type="button" id="guestBtn">가입 없이 체험하기</button>
       </div>
@@ -259,6 +246,7 @@
       <div id="evidenceBody" aria-live="polite"></div>
       <div class="actions sticky-actions">
         <button class="primary" type="button" id="approveBtn">이 내용으로 승인</button>
+        <button class="ghost" type="button" id="evidenceDraftBtn">임시저장</button>
       </div>
       <p class="fine" id="evidenceError" role="alert"></p>
     </div>
@@ -288,10 +276,11 @@
         <label class="check-row"><input type="checkbox" id="blindAck" /><span>교복·학교 로고·명찰 등 출신 학교가 드러나는 물건이 보이거나 입혀 있지 않으며, 성명·수험번호·출신 고교·부모 및 친인척의 직업 등 사회적 지위를 드러내는 말은 하지 않겠습니다.</span></label>
         <p class="fine">감지되면 그 답변은 AI로 보내지 않고 같은 질문으로 다시 답하게 합니다. 카메라는 쓰지 않으며 복장은 자동으로 확인하지 않습니다. <a href="/privacy.html#blind" target="_blank" rel="noopener">개인정보 보호 정책</a></p>
       </fieldset>
+      <p class="fine" id="setupError" role="alert"></p>
       <div class="actions sticky-actions">
         <button class="primary" type="submit" id="startBtn">면접 시작</button>
+        <button class="ghost" type="button" id="setupDraftBtn">임시저장</button>
       </div>
-      <p class="fine" id="setupError" role="alert"></p>
     </form>
   </section>
 

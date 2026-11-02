@@ -109,8 +109,8 @@ test('B3 gate: zero outbound calls and applicant text never sent when any condit
   });
 });
 
-test('B3 default route stays Gemini/mock: claude is opt-in only and highschool stays mock', async () => {
-  await withProviders({ env: { ...CLAUDE, LLM_ANALYSIS_PROVIDER: '' }, overrides: syn, respond: () => reply([S1]) }, async (ctx) => {
+test('B3 route: Claude is the default when its key exists (2026-11-03), ROUTE_* override wins, highschool stays mock', async () => {
+  await withProviders({ env: { ...CLAUDE, LLM_ANALYSIS_PROVIDER: '', ROUTE_CLAIMS_EXTRACT: 'mock' }, overrides: syn, respond: () => reply([S1]) }, async (ctx) => {
     const st = await ctx.g('/api/v1/providers/status');
     assert.notEqual(st.data.operations['claims.extract'].provider, 'claude');
   });

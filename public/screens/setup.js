@@ -8,6 +8,8 @@ import { state } from '../core/state.js';
 import { enterRoom } from './room.js';
 import { openMic } from '../core/vad.js';
 import { Stepper } from '../ui/index.js';
+import { toast } from '../core/toast.js';
+import { readStep, saveStep } from './draft.js';
 
 $('#setupStepper').innerHTML = Stepper(['지원 정보', '근거 확인', '면접 준비'], 2);
 
@@ -33,11 +35,23 @@ function applyInputModes() {
   $('#micCheck').hidden = !usable;
 }
 
+const setupDraft = () => ({ input_mode: new FormData($('#setupForm')).get('input_mode') || 'text', blind_ack: $('#blindAck').checked });
+function restoreSetupDraft() {
+  const d = readStep('setup');
+  if (!d) return;
+  const radio = $(`#setupForm input[value=${d.input_mode === 'groq' ? 'groq' : 'text'}]`);
+  if (radio && !radio.disabled) radio.checked = true;
+  $('#blindAck').checked = !!d.blind_ack;
+}
+$('#setupDraftBtn')?.addEventListener('click', () => { saveStep('setup', setupDraft()); toast('임시저장했습니다.'); });
+window.addEventListener('hashchange', () => { if (state.user && location.hash !== '#/setup' && $('#setupForm') && !$('#screen-setup').hidden) saveStep('setup', setupDraft()); });
+
 export async function refreshSetup() {
   updateSetupSummary();
   applyInputModes(); // 마지막으로 알던 상태로 먼저 그리고, 서버 상태로 다시 맞춘다
   try { state.stt = await api('/stt/status' + (state.profile?.id ? `?profile_id=${encodeURIComponent(state.profile.id)}` : '')); } catch { /* 이전 값 유지 */ }
   applyInputModes();
+  restoreSetupDraft();
   await refreshModeChip();
 }
 window.addEventListener('hashchange', () => { if (location.hash === '#/setup') refreshSetup(); });
@@ -70,7 +84,7 @@ $('#micTestBtn')?.addEventListener('click', async () => {
 $('#setupForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.approved) return setError('#setupError', '근거를 승인해야 시작할 수 있습니다.');
-  if (!$('#blindAck').checked) return setError('#setupError', '시작 전 확인 항목에 체크해 주세요.');
+  if (!$('#blindAck').checked) { setError('#setupError', '시작 전 확인 항목에 체크해 주세요.'); toast('시작 전 확인 항목에 체크해 주세요.', true); $('#blindCheck').scrollIntoView?.({ block: 'center' }); return; }
   const btn = $('#startBtn');
   setError('#setupError', '');
   const done = busyButton(btn, '면접 준비 중...');

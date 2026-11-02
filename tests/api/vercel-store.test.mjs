@@ -104,36 +104,14 @@ test('auth rate limit lives in Redis (survives cold starts); unconfigured store 
   assert.equal(out.status, 503);
 });
 
-test('gate on Vercel: locked requests never touch Redis; fail closed without SITE_PASSWORD; Redis-counted attempts', async () => {
+test('no site gate on Vercel: open without SITE_PASSWORD, auth still required for user routes', async () => {
   const up = fakeUpstash();
   const redis = createRedis({ url: 'https://redis.test', token: 'tok', fetchFn: up.fetchFn });
-  const mk = (extra) => createVercelHandler({ env: { ...ENV, ...extra }, redis });
-  const req = (path, init = {}) => new Request('http://x' + path, { headers: { 'x-forwarded-for': '2.2.2.2', ...(init.headers || {}), ...(init.body ? { 'Content-Type': 'application/json' } : {}) }, ...init });
-
-  // 비밀번호 환경변수가 없는 Vercel 배포는 닫힌다
-  const closed = await mk({ VERCEL: '1' })(req('/api/v1/health'));
-  assert.equal(closed.status, 503);
-  assert.equal((await closed.json()).error.code, 'gate_unconfigured');
-
-  const h = mk({ VERCEL: '1', SITE_PASSWORD: 'pw-vercel', GATE_SECRET: 'g' });
-  const before = up.kv.size;
-  const locked = await h(req('/api/v1/auth/signup', { method: 'POST', body: JSON.stringify(SIGNUP) }));
-  assert.equal(locked.status, 401);
-  assert.equal((await locked.json()).error.code, 'gate_required');
-  assert.equal(up.kv.size, before, 'nothing written to Redis while locked');
-
-  assert.equal((await h(req('/api/v1/gate', { method: 'POST', body: JSON.stringify({ password: 'bad' }) }))).status, 401);
-  const ok = await h(req('/api/v1/gate', { method: 'POST', body: JSON.stringify({ password: 'pw-vercel' }) }));
-  assert.equal(ok.status, 200);
-  const cookie = ok.headers.get('set-cookie').split(';')[0];
-  assert.equal((await h(req('/api/v1/health', { headers: { cookie } }))).status, 200);
-  // 다른 비밀값으로 만든 핸들러(=다른 배포 설정)는 이 쿠키를 거절한다
-  assert.equal((await mk({ VERCEL: '1', SITE_PASSWORD: 'pw-vercel', GATE_SECRET: 'other' })(req('/api/v1/health', { headers: { cookie } }))).status, 401);
-
-  // 시도 제한은 Redis로 센다: 콜드 스타트마다 새 핸들러여도 누적
-  let last;
-  for (let i = 0; i < 6; i++) last = await mk({ VERCEL: '1', SITE_PASSWORD: 'pw-vercel', GATE_SECRET: 'g' })(req('/api/v1/gate', { method: 'POST', body: JSON.stringify({ password: 'bad' }), headers: { 'x-forwarded-for': '3.3.3.3' } }));
-  assert.equal(last.status, 429);
+  const h = createVercelHandler({ env: { ...ENV, VERCEL: '1' }, redis });
+  const req = (path, init = {}) => new Request('http://x' + path, { headers: { 'x-forwarded-for': '2.2.2.2' }, ...init });
+  assert.equal((await h(req('/api/v1/health'))).status, 200);
+  assert.equal((await h(req('/api/v1/gate'))).status === 503, false);
+  assert.equal((await h(req('/api/v1/sessions'))).status, 401);
 });
 
 test('ai switch on Vercel: state lives in Redis across cold starts and is rate limited via Redis', async () => {

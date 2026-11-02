@@ -17,7 +17,7 @@ globalThis.fetch = async (url, options) => {
   const entry = { number: requests.length + 1, status: null }; requests.push(entry);
   const response = await realFetch(url, options); entry.status = response.status; return response;
 };
-const env = { ...loaded, SITE_PASSWORD: '', STORE: 'memory', TRENDS_FILE: '', DEV_TOKEN_A: 'followup-synthetic-smoke', PROFILE_RATE_PER_MINUTE: '100' };
+const env = { ...loaded, STORE: 'memory', TRENDS_FILE: '', DEV_TOKEN_A: 'followup-synthetic-smoke', PROFILE_RATE_PER_MINUTE: '100' };
 for (const op of ['CLAIMS_EXTRACT', 'SCHOOL_ANALYZE', 'QUESTIONS_DESIGN', 'QUESTIONS_WRITE', 'EVALUATION_OBSERVE', 'EVALUATION_GENERATE', 'REPORT_COMMENT', 'SCHOOL_SEARCH', 'TRENDS_DECIDE', 'SPEECH_TRANSCRIBE', 'SPEECH_SYNTHESIZE']) env[`ROUTE_${op}`] = 'mock';
 env.ROUTE_DIALOGUE_NEXT = 'gemini';
 const app = createApp({ env, syntheticTraffic: true });

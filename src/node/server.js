@@ -36,6 +36,7 @@ function toRequest(req) {
 export function createApp(overrides = {}) {
   // overrides.env를 주면(테스트·E2E·리허설) 로컬 .env를 읽지 않는다: 개발자의 실키·라우팅 설정이 시험 결과를 바꾸지 않게 한다.
   const env = overrides.env ? { ...process.env, ...overrides.env } : { ...loadDotEnv(root), ...process.env };
+  if (!overrides.env && !env.AI_REQUIRE_LIVE) env.AI_REQUIRE_LIVE = 'on';
   const config = loadConfig(env);
   // 트렌드 스토어: 영속 파일(TRENDS_FILE) 기반. 저장 실패 시 메모리로만 동작.
   const trendsFilePath = overrides.trendsFile || (config.trendsFile ? path.resolve(root, config.trendsFile) : '');

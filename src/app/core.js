@@ -12,7 +12,6 @@ import { createCaller } from '../providers/call.js';
 import { err, now } from './util.js';
 import { safeEqual, sha256Hex } from './crypto.js';
 import { createAuthHandlers } from './handlers/auth.js';
-import { createGate } from './gate.js';
 import { createProfileHandlers } from './handlers/profiles.js';
 import { createConsentHandlers } from './handlers/consents.js';
 import { guestAiReady } from '../domain/guest-policy.js';
@@ -57,7 +56,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const registry = createRegistry(config);
   const caller = createCaller({
     registry, gates: config.providerGate, ledger, priceOf: (model, usage) => priceOf(model, usage),
-    killed: { has: isKilled }, adapters: { mock, gemini, groq, claude, deepseek, elevenlabs }, caps: config.providerCaps,
+    killed: { has: isKilled }, strict: () => config.aiRequireLive && !aiOff, adapters: { mock, gemini, groq, claude, deepseek, elevenlabs }, caps: config.providerCaps,
     timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs, claude: config.claude.timeoutMs, deepseek: config.deepseek.timeoutMs, elevenlabs: config.elevenlabs.timeoutMs },
   });
   // 요청 컨텍스트: synthetic은 서버가 코드로 켠 인스턴스이거나 서버 판정 훅(extra.synthetic, WP-C6 fixture 해시)일 때만 true.
@@ -155,12 +154,10 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     userBasics: createUserBasicsHandlers(d),
   };
   const requestLog = [];
-  const gate = createGate({ password: config.sitePassword, secret: config.gateSecret });
-  const fetch = createFetchHandler({ store, auth, bearer, handlers, requestLog, gate, aiSwitch });
-  // gate: 어댑터(Vercel)가 잠금 사용 여부를 알아야 해서 노출한다.
+  const fetch = createFetchHandler({ store, auth, bearer, handlers, requestLog, aiSwitch });
 
   return {
-    fetch, gate, aiSwitch, config, store, ledger, providerInfo, providerName, handlers,
+    fetch, aiSwitch, config, store, ledger, providerInfo, providerName, handlers,
     // 실제로 사용된 공급자 통계(운영 진단)
     providerStats() { return gemini?.stats || null; },
   };
