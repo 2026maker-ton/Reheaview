@@ -18,6 +18,7 @@ export function createStore({ ttlDays = 30 } = {}) {
   const deletions = new Map();      // id -> deletion job
   const consents = new Map();       // owner -> 최신 동의 행(감사 기록, WP-C6)
   const users = new Map();          // user id -> { id, email, name, pass:{salt,hash,iter}, created_at }
+  const userBasics = new Map();     // owner -> 면접 준비용 기본 정보(계정 삭제 시 파기)
   const authSessions = new Map();   // sha256(token) -> { owner, expires_at }
   const profileCalls = new Map();   // owner -> [timestamps] (프로필 추출 속도 제한)
   const instSources = new Map();    // profile_id -> [source rows] (기관 자료 출처)
@@ -208,7 +209,15 @@ export function createStore({ ttlDays = 30 } = {}) {
     },
     getUser(id) { return users.get(id) || null; },
     getUserByEmail(email) { for (const u of users.values()) if (u.email === email) return u; return null; },
-    deleteUser(id) { users.delete(id); for (const [k, s] of authSessions) if (s.owner === id) authSessions.delete(k); },
+    updateUser(id, patch) {
+      const u = users.get(id);
+      if (!u) return null;
+      Object.assign(u, patch);
+      return u;
+    },
+    getUserBasics(owner) { return userBasics.get(owner) || null; },
+    setUserBasics(owner, row) { userBasics.set(owner, row); return row; },
+    deleteUser(id) { users.delete(id); userBasics.delete(id); for (const [k, s] of authSessions) if (s.owner === id) authSessions.delete(k); },
     putAuthSession(tokenHash, rec) {
       authSessions.set(tokenHash, rec);
       if (authSessions.size > 5000) for (const [k, s] of authSessions) if (s.expires_at < Date.now()) authSessions.delete(k);
@@ -223,6 +232,7 @@ export function createStore({ ttlDays = 30 } = {}) {
     recordProfileCall(owner) { return recordRate(owner, 'profile'); },
     deleteAccount(owner) {
       consents.delete(owner);
+      userBasics.delete(owner);
       users.delete(owner);
       for (const [k, s] of authSessions) if (s.owner === owner) authSessions.delete(k);
       const deletionId = randomUUID();
@@ -336,7 +346,7 @@ export function createStore({ ttlDays = 30 } = {}) {
       return removed;
     },
     // WP-A2: 영속용 내부 맵(내보내기·티켓 제외 — 메모리 전용 TTL).
-    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, sourceFetches, institutions, transferJobs, idempotency, consents, documents, docRevisions, users, authSessions },
+    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, sourceFetches, institutions, transferJobs, idempotency, consents, documents, docRevisions, users, userBasics, authSessions },
 
     // 호환: 컬렉션 맵을 직접 노출(테스트·삭제 경로가 사용). 새 코드는 메서드를 우선한다.
     events, pushEvent, commands, evaluations, appeals, attempts, deletions,

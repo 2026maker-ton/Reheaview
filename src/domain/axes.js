@@ -35,7 +35,7 @@ const hasScore = (t) => t.turn_score && Number.isFinite(t.turn_score.relevance);
 // transcript: generalTranscript의 항목(답변은 이미 위험 표현을 가린 텍스트). institution: 승인된 기관 프로필(없으면 null).
 export function buildAxes({ transcript = [], competencies = [], institution = null }) {
   const turns = transcript.filter(hasScore);
-  const fitTurns = turns.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score }));
+  const fitTurns = turns.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score, evidence_ids: (t.evidence || []).map((e) => e.id).filter(Boolean) }));
   const out = {};
   const put = (id, { level = null, n = 0, basis, reason = null, quote = null }) => {
     const def = AXES.find((a) => a.id === id);
@@ -57,7 +57,7 @@ export function buildAxes({ transcript = [], competencies = [], institution = nu
   const tIds = new Set(fit.flatMap((c) => c.turn_ids));
   const tHit = turns.filter((t) => tIds.has(t.turn_id));
   put('talent_link', competencies.length
-    ? { level: tHit.length ? mean(tHit.map(avg3)) : null, n: tHit.length, basis: `역량 ${competencies.length}개 중 ${fit.length}개가 답변에 나타났습니다(단어 일치 기반, 뜻 해석 아님).`, reason: tHit.length ? null : '확인된 역량이 답변에서 발견되지 않아 최저 수준(1)으로 표시했습니다. 같은 뜻을 다른 말로 했어도 단어 일치로는 잡히지 않습니다.', quote: tHit[0]?.answer_text }
+    ? { level: tHit.length ? mean(tHit.map(avg3)) : null, n: tHit.length, basis: `역량 ${competencies.length}개 중 ${fit.length}개가 그 역량을 묻도록 만든 질문의 답변 또는 답변 속 역량 이름과 연결됐습니다.`, reason: tHit.length ? null : '이 역량을 묻도록 만든 질문이 없고, 답변에서도 역량 이름이 보이지 않아 최저 수준(1)으로 표시했습니다.', quote: tHit[0]?.answer_text }
     : { basis: '확인된 인재상·역량이 없습니다.', reason: '비교할 인재상이 확인되지 않아 최저 수준(1)으로 표시했습니다.' });
 
   // 3·4. 단계별 집계.

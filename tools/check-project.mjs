@@ -41,13 +41,13 @@ try {
   failed = true;
 }
 
-// UI structure guard (2026-10-31, PROJECT.md v1.4.0): 7 screens, university-only entry, extras hidden, no record button, no prompt()/confirm().
+// UI structure guard: landing + 7 app screens, university-only entry, extras hidden.
 try {
   const html = await readFile(resolve(root, 'public/index.html'), 'utf8');
   const jsFiles = (await readdir(resolve(root, 'public'), { recursive: true })).filter((f) => f.endsWith('.js'));
   const js = (await Promise.all(jsFiles.map((f) => readFile(resolve(root, 'public', f), 'utf8')))).join('\n');
   const screens = [...html.matchAll(/data-screen="([a-z]+)"/g)].map((m) => m[1]);
-  const want = ['login', 'dashboard', 'application', 'evidence', 'setup', 'room', 'feedback'];
+  const want = ['landing', 'login', 'profile', 'dashboard', 'application', 'evidence', 'setup', 'room', 'feedback'];
   const problems = [];
   for (const s of want) if (!screens.includes(s)) problems.push(`missing screen ${s}`);
   for (const s of ['repractice', 'history', 'admin']) if (screens.includes(s)) problems.push(`hidden feature screen present: ${s}`);
@@ -58,7 +58,7 @@ try {
   if (/\b(?:window\.)?(?:prompt|confirm)\s*\(/.test(js.replace(/ask(?:Confirm|Input)/g, ''))) problems.push('prompt()/confirm() used');
   if (/synthetic\s*:\s*(?:true|freeTest)|free_test\s*:/.test(js)) problems.push('client sends synthetic/free_test flag');
   if (problems.length) { console.error(`FAIL public UI: ${problems.join('; ')}`); failed = true; }
-  else console.log('PASS public UI: 7 screens, university journey, extras hidden, no record button, no prompt/confirm');
+  else console.log('PASS public UI: landing + 8 app screens, university journey, extras hidden, no record button, no prompt/confirm');
 } catch (error) {
   console.error(`FAIL public UI: ${error.message}`);
   failed = true;

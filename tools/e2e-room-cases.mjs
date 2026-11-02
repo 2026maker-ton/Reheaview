@@ -53,6 +53,8 @@ export async function verifyRoomCompletion(page, check) {
   await page.clock.runFor(2900);
   check(submissions === 0, '음성: 마지막 말소리 뒤 2.9초에는 조기 제출 없음');
   await page.clock.runFor(1000);
+  // The fake browser clock does not await the intercepted HTTP response on the Node event loop.
+  await page.waitForFunction(() => document.querySelector('#roomTitle')?.textContent.includes('자동 진행 질문 2'), null, { timeout: 5000 });
   check(submissions === 1 && transcriptions === 1, '음성: 배경 소음을 제외한 정적 3초 후 전사·제출 1회');
   await page.evaluate(() => { window.__voiceMode = 'silence'; });
   for (let i = 0; i < 4; i++) await page.clock.runFor(32_000);

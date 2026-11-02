@@ -1,22 +1,31 @@
-// 로그인·가입·로그아웃·내 데이터 삭제. 토큰은 서버가 발급한 로그인 토큰만 저장한다(비밀번호는 저장하지 않음).
+// 로그인·가입·로그아웃. 토큰은 서버가 발급한 로그인 토큰만 저장한다(비밀번호는 저장하지 않음).
 import { $, $$, setError } from '../core/format.js';
 import { api } from '../core/api.js';
 import { state, setToken, resetFlow } from '../core/state.js';
 import { go } from '../core/router.js';
 import { toast } from '../core/toast.js';
-import { askConfirm, askInput, dialog } from '../core/dialog.js';
 import { loadProvider } from './dashboard.js';
 import { clearDraft } from './draft.js';
 import { ensureGuestAiConsent } from '../core/guest-ai.js';
+
+function needsBasicsRedirect() {
+  return state.user && !state.user.guest && state.user.basics_complete === false;
+}
+
+function onLandingScreen() {
+  const raw = (location.hash || '').replace(/^#\/?/, '') || 'landing';
+  return raw === 'landing';
+}
 
 function showUser() {
   $('#userMenu').hidden = !state.user;
   $('#userName').textContent = state.user?.name ? (state.user.guest ? state.user.name : `${state.user.name}님`) : '';
   $('#guestLoginBtn').hidden = !state.user?.guest;
   $('#guestAiBtn').hidden = !state.user?.guest || !!state.user.ai_consent;
-  $('#myDataBtn').hidden = !!state.user?.guest;
+  $('#myProfileBtn').hidden = !!state.user?.guest;
   $('#logoutBtn').hidden = !!state.user?.guest;
-  $('#guestWarning').hidden = !state.user?.guest || dismissedGuest === state.user.id;
+  // 소개 랜딩에서는 게스트 개인정보 배너를 숨기고, 연습 공간(앱 화면) 진입 후에만 표시한다.
+  $('#guestWarning').hidden = !state.user?.guest || dismissedGuest === state.user.id || onLandingScreen();
 }
 let dismissedGuest = null;
 $('#dismissGuestWarning')?.addEventListener('click', () => { dismissedGuest = state.user?.id; showUser(); });
@@ -69,7 +78,7 @@ async function enter(path, body, btn) {
     const r = await api(path, { method: 'POST', body, auth: false });
     setToken(r.token); state.user = r.user; showUser();
     await loadProvider();
-    go('dashboard');
+    go(needsBasicsRedirect() ? 'profile' : 'dashboard');
   } catch (err) {
     setError('#authError', err.message);
   } finally { btn.disabled = false; }
@@ -91,7 +100,7 @@ $('#signupForm')?.addEventListener('submit', (e) => {
 async function loadAuthMode() {
   try { $('#guestBox').hidden = !(await api('/auth/mode', { auth: false })).guest_allowed; } catch { $('#guestBox').hidden = true; }
 }
-window.addEventListener('hashchange', () => { if (location.hash === '#/login') loadAuthMode(); });
+window.addEventListener('hashchange', () => { showUser(); if (location.hash === '#/login') loadAuthMode(); });
 if (location.hash === '#/login') loadAuthMode();
 $('#guestBtn')?.addEventListener('click', () => enter('/auth/guest', {}, $('#guestBtn')));
 
@@ -101,21 +110,3 @@ $('#logoutBtn')?.addEventListener('click', async () => {
   toast('로그아웃했습니다.');
 });
 
-// 내 데이터: 면접 기록 전체 삭제 또는 계정 삭제(되돌릴 수 없음).
-$('#myDataBtn')?.addEventListener('click', async () => {
-  const choice = await dialog({ title: '내 데이터', message: '삭제는 되돌릴 수 없습니다.', label: '선택', choices: [['sessions', '면접 기록 모두 삭제'], ['account', '계정과 모든 자료 삭제']], okText: '계속', danger: true });
-  if (choice === 'sessions') {
-    if (!(await askConfirm('면접 기록 삭제', '모든 면접 답변·결과를 삭제합니다.', { okText: '삭제', danger: true }))) return;
-    try {
-      const { sessions } = await api('/sessions');
-      for (const s of sessions || []) if (!['deleted', 'deleting'].includes(s.state)) await api(`/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE', idempotent: true });
-      resetFlow(); clearDraft(); toast('면접 기록을 삭제했습니다.'); go('dashboard');
-    } catch (err) { toast(err.message, true); }
-  }
-  if (choice === 'account') {
-    const typed = await askInput('계정 삭제', '확인을 위해 “삭제”를 입력하세요.', '확인 문구');
-    if (typed !== '삭제') return;
-    try { await api('/account', { method: 'DELETE', idempotent: true }); } catch (err) { toast(err.message, true); return; }
-    signedOut('계정을 삭제했습니다.');
-  }
-});

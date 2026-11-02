@@ -9,6 +9,7 @@ import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { askConfirm } from '../core/dialog.js';
 import { loadReport, showReportProcessing, showReportFailure, cancelReportLoading } from './feedback.js';
+import { clearDraftAfterInterview } from './draft.js';
 import { openMic, createCapture, calibrate } from '../core/vad.js';
 
 let room = null; // { voice, seconds, timer, endAt, parts, capture, busy, done }
@@ -184,13 +185,9 @@ async function submit(cutOff) {
   $('#textAnswer').hidden = true; $('#answerBtn').hidden = true;
   setListen('processing', '답변 분석 중...');
   $('#roomState').textContent = '답변 분석 중...';
-  if (room.stage === 'closing') {
-    state.session.state = 'completing';
-    showReportProcessing();
-  }
-  // 제출과 동시에 면접관이 답변을 받았다고 말한다(시간 초과일 때는 이미 마감 문장을 말했다).
-  if (!cutOff) $('#interviewerLine').textContent = FIXED.ack;
-  const said = cutOff ? Promise.resolve() : speak(FIXED.ack);
+  // 받은 답변을 먼저 말하고, 그 음성이 끝난 뒤에만 결과 분석 화면으로 넘어간다.
+  $('#interviewerLine').textContent = FIXED.ack;
+  const said = speak(FIXED.ack);
   try {
     const r = await api(`/sessions/${state.session.id}/commands`, { method: 'POST', idempotent: true, body: { command_id: uuid(), expected_version: state.session.version, type: 'turn.text', payload: { text, cut_off: cutOff, ...(voice_metrics ? { voice_metrics } : {}) } } });
     if (room !== current || room.done) return;
@@ -207,7 +204,7 @@ async function submit(cutOff) {
     }
     if (r.state === 'completed' || r.action === 'finish') return endInterview(r.closing || FIXED.closing);
     if (r.action === 'ask_followup') return ask(r.utterance, '', room.stage);
-    return ask(r.question?.text || r.utterance, r.bridge || '', r.question?.stage);
+    return ask(r.question?.text || r.utterance, '', r.question?.stage);
   } catch (err) {
     if (room !== current || room.done) return;
     state.session.state = 'active'; go('room');
@@ -221,7 +218,9 @@ async function submit(cutOff) {
 async function endInterview(closing) {
   room.done = true;
   stopVoice();
+  clearDraftAfterInterview();
   state.session.state = 'completed';
+  void closing;
   await loadReport();
 }
 
@@ -254,6 +253,9 @@ $('#finishBtn')?.addEventListener('click', async () => {
   stopVoice();
   state.session.state = 'completing';
   const finish = async () => {
+    $('#interviewerLine').textContent = FIXED.ack;
+    await speak(FIXED.ack);
+    clearDraftAfterInterview();
     showReportProcessing();
     try {
       // 진행 중 답변이 버전을 올릴 수 있다. 종료 명령은 최신 상태에서 직렬 처리한다.

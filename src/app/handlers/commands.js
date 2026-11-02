@@ -1,7 +1,7 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID, sha256Hex } from '../crypto.js';
 import { detectPii, buildBlindContext } from '../../domain/pii.js';
-import { detectBlindRisk, maskRisk, answerComment } from '../../domain/answer-review.js';
+import { detectBlindRisk, maskRisk, answerComment, validateAnswerReview } from '../../domain/answer-review.js';
 import { linkAnswersToInstitution } from '../../domain/institution.js';
 import { followupForRole, ROLES } from '../../domain/roles.js';
 import { canSessionTransition } from '../../domain/state.js';
@@ -425,28 +425,32 @@ export function createCommandHandlers(d) {
     Object.assign(turn, { cut_off: cutOff, voice_metrics: sanitizeVoice(payload.voice_metrics), asked_text: askedText, stage: q.stage });
     const canFollow = q.followup_allowed && !followupTurn;
     const ctx = requestContext(owner, { synthetic: rev.synthetic === true });
-    const contextText = `${askedText}\n${text}`;
+    const evidenceText = (q.evidence || []).filter((e) => e.kind === 'application').map((e) => e.quote || '').filter(Boolean).join('\n');
+    const scoreCtx = { question: askedText, evidence: evidenceText };
+    const contextText = `${askedText}\n${evidenceText}\n${text}`;
     const followupReason = followupReasonFor(text);
-    const ruleNext = () => { const f = canFollow ? ruleFollowup(q.stage, text) : null; return f ? { action: 'followup', utterance: f, turn_score: ruleTurnScore(text) } : { action: 'next', turn_score: ruleTurnScore(text) }; };
+    const scored = () => ruleTurnScore(text, scoreCtx);
+    const ruleNext = () => { const f = canFollow ? ruleFollowup(q.stage, text, scoreCtx) : null; return f ? { action: 'followup', utterance: f, turn_score: scored() } : { action: 'next', turn_score: scored() }; };
     let decision; let trace;
     if (q.stage === 'closing' || s.q_index === s.questions.length - 1) {
       // 마지막 답변은 대화 판단을 다시 호출하지 않고 바로 최종 분석으로 넘긴다.
-      decision = { action: 'next', turn_score: ruleTurnScore(text) };
+      decision = { action: 'next', turn_score: scored() };
       trace = { operation: 'dialogue.next', provider: 'mock', mode: 'blocked', reason: 'interview_finished', model_alias: 'rule-based', latency_ms: null };
     } else if (s.llm_calls >= config.budgets.maxLlmCallsPerSession - 3) {
       decision = ruleNext(); trace = { operation: 'dialogue.next', provider: 'mock', mode: 'blocked', reason: 'budget_cap', model_alias: 'rule-based', latency_ms: null };
     } else {
       const res = await caller.call('dialogue.next', {
         ctx, mockAlias: 'rule-based', reserve: { key: `session:${s.id}`, amount: 0.005 },
-        invoke: (a) => (a.decideTurn ? a.decideTurn({ stageLabel: q.stage_label, question: askedText, answer: text, followupReason, schoolContext: schoolContextOf(s), allowFollowup: canFollow, persona: personaBlock(s.persona_ids || [], { stage: q.stage }) }) : Promise.reject(Object.assign(new Error('decideTurn unsupported'), { invalid: true }))),
+        invoke: (a) => (a.decideTurn ? a.decideTurn({ stageLabel: q.stage_label, question: askedText, answer: text, evidence: evidenceText, followupReason, schoolContext: schoolContextOf(s), allowFollowup: canFollow, persona: personaBlock(s.persona_ids || [], { stage: q.stage }) }) : Promise.reject(Object.assign(new Error('decideTurn unsupported'), { invalid: true }))),
         // 실제 AI 호출이 실패하면 꼬리질문을 만들어내지 않고 다음 승인 질문으로 넘어간다(설계서 §6.2-6). AI가 꺼진 데모(Mock)에서만 규칙 꼬리질문을 쓴다.
-        mock: ruleNext, fallback: () => ({ action: 'next', turn_score: ruleTurnScore(text) }),
+        mock: ruleNext, fallback: () => ({ action: 'next', turn_score: scored() }),
         // 꼬리질문 문장은 기존 대화 검증기(240자·물음표 1개·금칙어·새 숫자 금지)를 통과해야 한다. 점수가 형식에 안 맞으면 규칙 점수로 바꾼다.
         validate: (o) => o?.action === 'next' || (o?.action === 'followup' && validateDialogueOutput(o, contextText) && personaOutputOk(o.utterance) && (String(o.utterance).match(/[?？]/g) || []).length === 1),
       });
       trace = res.trace; decision = res.value;
       if (['live', 'fallback'].includes(trace.mode)) s.llm_calls += 1; // 실제로 호출한 경우만 센다
-      if (res.live && !validTurnScore(decision.turn_score)) decision = { ...decision, turn_score: ruleTurnScore(text), score_source: 'rule' };
+      if (res.live && !validTurnScore(decision.turn_score)) decision = { ...decision, turn_score: scored(), score_source: 'rule' };
+      if (trace.mode !== 'live') decision = { ...decision, turn_score: scored() };
     }
     pushTrace(s, trace);
     if (decision.action === 'followup' && !canFollow) decision = { ...decision, action: 'next' };
@@ -471,8 +475,8 @@ export function createCommandHandlers(d) {
     }
     const nq = s.questions[nextIndex];
     store.updateSession(s, { question_started_at: now() });
-    store.pushEvent(s.id, 'assistant.message', { utterance: `${q.bridge || ''} ${nq.text}`.trim(), action: 'next_question', stage: nq.stage });
-    return accept({ ...base, state: s.state, version: s.version, action: 'next_question', bridge: q.bridge || '', question: roomQuestion(nq), utterance: `${q.bridge || ''} ${nq.text}`.trim(), current_question: roomQuestion(nq) });
+    store.pushEvent(s.id, 'assistant.message', { utterance: nq.text, action: 'next_question', stage: nq.stage });
+    return accept({ ...base, state: s.state, version: s.version, action: 'next_question', question: roomQuestion(nq), utterance: nq.text, current_question: roomQuestion(nq) });
   }
 
   // 보고서용 질문·답변 기록(일반 면접): 본질문·꼬리질문을 구분하고, 근거(i 버튼)·참고 점수·음성 지표를 붙인다.
@@ -605,12 +609,39 @@ export function createCommandHandlers(d) {
       }
       // 일반 면접: 질문·답변 기록, 역량 적합성, 6축을 먼저 만들고 면접관 말투 한줄평(report.comment)을 붙인다.
       const buildGeneralPart = async () => {
-        // 일반 면접: 질문·답변 기록과 역량 적합성(키워드 일치 기반 참고 지표). 주장 연결·기관 연결 문장은 i 버튼·차트와 겹쳐 싣지 않는다.
-        const transcript = generalTranscript(s);
+        // 일반 면접: 질문·답변 기록. 차트 점수는 가능하면 Gemini가 질문·학생부·답변을 읽고 매긴 값으로 바꾼다.
+        let transcript = generalTranscript(s);
         const ver = store.getVersion(s.profile_version_id);
-        const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score }));
+        const vProfEarly = ver ? store.getProfile(owner, ver.profile_id) : null;
+        const reviewIds = transcript.map((t) => t.turn_id);
+        const reviewRes = await caller.call('answer.review', {
+          ctx: requestContext(owner, { forceMock: !!s.highschool_mock && !allSynthetic, synthetic: allSynthetic }),
+          mockAlias: 'rule-based',
+          reserve: { key: `session:${s.id}`, amount: config.budgets.commentReserve },
+          invoke: (a2) => {
+            if (typeof a2.reviewAnswers !== 'function') throw Object.assign(new Error('review unsupported'), { code: 501, invalid: true });
+            return a2.reviewAnswers({
+              application: vProfEarly?.application_text || '',
+              turns: transcript.map((t) => ({ turn_id: t.turn_id, question: t.question_text, evidence: (t.evidence || []).map((e) => e.quote || e.label || '').filter(Boolean).join('\n'), answer: t.answer_text })),
+            });
+          },
+          mock: async () => null, fallback: async () => null,
+          validate: (o) => validateAnswerReview(o, reviewIds) !== null,
+        });
+        pushTrace(s, reviewRes.trace);
+        if (['live', 'fallback'].includes(reviewRes.trace.mode)) s.llm_calls += 1;
+        const reviewed = reviewRes.live ? validateAnswerReview(reviewRes.value, reviewIds) : null;
+        if (reviewed) {
+          const byId = new Map(reviewed.turns.map((t) => [t.turn_id, t]));
+          transcript = transcript.map((t) => {
+            const r = byId.get(t.turn_id);
+            if (!r) return t;
+            return { ...t, turn_score: { relevance: r.relevance, specificity: r.specificity, reasoning: r.reasoning, source: 'llm' }, comment: { good: r.good || null, fix: r.fix || null, basis: 'Gemini가 이 질문, 학생부 근거, 이 답변을 읽고 쓴 문장입니다. 검증 전 참고이며 합격 판단이 아닙니다.', weakest: null, strongest: null } };
+          });
+        }
+        const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score, evidence_ids: (t.evidence || []).map((e) => e.id).filter(Boolean) }));
         const comps = ver?.plan?.general?.competencies || [];
-        const vProf = ver ? store.getProfile(owner, ver.profile_id) : null;
+        const vProf = vProfEarly;
         const vInst = vProf ? store.getInstitution(vProf.id)?.profile : null;
         const events = s.blind_events || [];
         const axes = buildAxes({ transcript, competencies: comps, institution: vInst });
@@ -636,7 +667,7 @@ export function createCommandHandlers(d) {
         return { format: 'general', transcript, axes, ai_comments,
           // 블라인드 안전 결과(설계서 §10.5-5): 민감 원문은 싣지 않고 종류·처리 결과만.
           blind_safety: { filter_version: FILTER_VERSION, blocked_count: events.length, events: events.map((e) => ({ level: e.level, labels: e.labels, action: e.action, at: e.at })), masked_answers: transcript.filter((t) => t.risk?.level && t.risk.level !== 'none').length, note: '대입 블라인드 면접 기준(성명·수험번호·출신 고교·부모 및 친인척의 직업 등 사회적 지위)에 해당하는 표현은 AI로 보내기 전에 막았고, 결과 화면에는 원문을 싣지 않습니다. 대학별 공식 규정이 확인되지 않아 Reheaview의 보수적 기본 정책을 적용했습니다.' },
-          personas: { ids: s.persona_ids || [], names: (s.persona_ids || []).map(personaName), notice: '가상의 면접관 관점입니다. 실제 대학의 면접관·교수·입학사정관이 아니며 평가 기준·합격 여부와 무관합니다.' }, competency_fit, score_label: '면접관 실시간 참고 점수 · 검증 전', fit_label: '역량 키워드 일치 기반 참고 지표 · 검증 전' };
+          personas: { ids: s.persona_ids || [], names: (s.persona_ids || []).map(personaName), notice: '가상의 면접관 관점입니다. 실제 대학의 면접관·교수·입학사정관이 아니며 평가 기준·합격 여부와 무관합니다.' }, competency_fit, score_label: reviewed ? 'Gemini 참고 점수 · 검증 전' : '규칙 참고 점수 · 검증 전', fit_label: '질문과 연결된 역량의 답변 점수 · 검증 전' };
       };
       const generalPart = general ? await buildGeneralPart() : null;
       report = {

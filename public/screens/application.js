@@ -7,13 +7,14 @@ import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { renderEvidence } from './evidence.js';
 import { Stepper } from '../ui/index.js';
-import { DRAFT_FIELDS, readDraft, saveDraft, clearDraft } from './draft.js';
+import { DRAFT_FIELDS, readDraft, saveDraft, clearDraft, markDraftForInterview } from './draft.js';
 
 $('#appStepper').innerHTML = Stepper(['지원 정보', '근거 확인', '면접 준비'], 0);
 
 let fixture = null; // 불러온 샘플 상세. 본문을 고치면 해제(서버가 다시 판정)
 const val = (name) => String($(`#applicationForm [name=${name}]`)?.value || '');
-const setFixture = (f) => { fixture = f; $('#fixtureBadge').hidden = !f; };
+let fillGen = 0;
+const setFixture = (f) => { fixture = f; $('#fixtureBadge').hidden = !f; if (f) { fillGen += 1; const note = $('#basicsFillNote'); if (note) note.hidden = true; } };
 
 // 샘플 목록: 서버가 DEMO_FIXTURES=on 일 때만 채운다.
 let listed = false;
@@ -21,7 +22,7 @@ async function fillFixtureList() {
   if (listed) return;
   try {
     const { fixtures } = await api('/fixtures');
-    $('#fixtureSelect').innerHTML = `<option value="">샘플 선택</option>${(fixtures || []).map((f) => `<option value="${esc(f.id)}">${esc(f.title)}</option>`).join('')}`;
+    $('#fixtureSelect').innerHTML = `<option value="">예시 선택</option>${(fixtures || []).map((f) => `<option value="${esc(f.id)}">${esc(f.title)}</option>`).join('')}`;
     listed = true;
   } catch { $('#fixtureSelect').closest('.sample-row').hidden = true; }
 }
@@ -67,7 +68,6 @@ $('#loadFixtureBtn')?.addEventListener('click', async () => {
     form.source_text.value = f.posting_text;
     form.application_text.value = f.application_text;
     setFixture(f);
-    if (f.posting_text) $('#postingDetails').open = true;
   } catch (e) {
     setError('#applicationError', e.message);
   }
@@ -97,7 +97,8 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
     state.versionId = created.version_id;
     state.approved = false;
     state.appKey = key;
-    clearDraft(); // 작성 중이던 내용은 서버 프로필로 넘어갔다
+    markDraftForInterview();
+    clearDraft(); // 작성 중이던 내용은 서버 프로필로 넘어갔다. 면접을 끝내면 다시 저장된 임시저장도 지운다.
     const detail = await api(`/profiles/${created.id}`);
     state.profile = { ...created, ...detail };
     state.sources = detail.sources || [];
@@ -122,8 +123,24 @@ function restoreDraft() {
   if (!d || !formEmpty()) return;
   const form = $('#applicationForm');
   for (const k of DRAFT_FIELDS) form[k].value = d.values[k] || '';
-  if (d.values.source_text) $('#postingDetails').open = true;
   toast('임시저장한 내용을 불러왔습니다.');
+}
+async function fillFromBasics() {
+  if (state.user?.guest || fixture || val('application_text').trim()) return;
+  const gen = ++fillGen;
+  try {
+    const b = await api('/user/basics');
+    if (gen !== fillGen || fixture || val('application_text').trim()) return;
+    const text = [b.student_record, b.activity_summary, b.intro_notes].map((s) => String(s || '').trim()).filter(Boolean).join('\n\n');
+    if (!text) return;
+    $('#applicationText').value = text;
+    const note = $('#basicsFillNote');
+    if (note) note.hidden = false;
+  } catch { /* 기본 정보가 없거나 게스트면 빈 칸으로 둔다 */ }
+}
+function openApplication() {
+  restoreDraft();
+  fillFromBasics();
 }
 $('#draftSaveBtn')?.addEventListener('click', () => {
   if (saveDraft(formValues())) toast('임시저장했습니다. 나갔다가 돌아와도 이어서 쓸 수 있어요.');
@@ -133,7 +150,7 @@ let lastHash = location.hash;
 window.addEventListener('hashchange', () => {
   if (lastHash === '#/application' && location.hash !== '#/application' && state.user) saveDraft(formValues());
   lastHash = location.hash;
-  if (location.hash === '#/application' && state.user) restoreDraft();
+  if (location.hash === '#/application' && state.user) openApplication();
 });
 window.addEventListener('beforeunload', () => { if (location.hash === '#/application' && state.user) saveDraft(formValues()); });
-if (location.hash === '#/application') setTimeout(() => { if (state.user) restoreDraft(); }, 0);
+if (location.hash === '#/application') setTimeout(() => { if (state.user) openApplication(); }, 0);

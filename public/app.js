@@ -11,6 +11,7 @@ import './screens/evidence.js';
 import './screens/setup.js';
 import './screens/room.js';
 import { loadMe, signedOut, startGuest } from './screens/login.js';
+import './screens/profile.js';
 import { loadProvider, restoreFromStorage } from './screens/dashboard.js';
 
 setUnauthorizedHandler(signedOut);
@@ -19,12 +20,12 @@ setGateHandler(showGate);
 (async function boot() {
   await ensureGate(); // 입장 비밀번호가 필요하면 통과할 때까지 앱을 열지 않는다
   initAiSwitch();
-  if (!location.hash) location.hash = '#/dashboard';
+  if (!location.hash) location.hash = '#/landing';
   const target = currentTarget();
   if (!(await loadMe())) {
     try { await startGuest(); } catch { renderScreen('login'); return; }
   }
   await loadProvider();
   // 새로고침·직접 URL: 서버 상태로 복원(복원이 화면 이동까지 처리), 아니면 가드를 거쳐 그리기
-  if (!(await restoreFromStorage(target))) go(target === 'login' ? 'dashboard' : target);
+  if (!(await restoreFromStorage(target))) go(target === 'login' && !state.user?.guest ? 'dashboard' : target);
 })();

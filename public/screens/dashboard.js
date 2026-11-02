@@ -36,14 +36,15 @@ export async function loadRecent() {
       $('#continueBtn').onclick = () => resumeSession(open.id);
     }
     const rows = all.filter((s) => s.state === 'completed').slice(0, 3);
-    box.closest('.card').hidden = !rows.length;
-    box.innerHTML = rows.map((s) => `
+    box.closest('.card').hidden = false;
+    box.innerHTML = rows.length ? rows.map((s) => `
       <div class="list-item">
         <div><strong>${esc(fmtDate(s.created_at))}</strong><div class="meta">${esc(String(s.question_count || 0))}문항</div></div>
         <button class="ghost small" type="button" data-open-session="${esc(s.id)}">결과 보기</button>
-      </div>`).join('');
+      </div>`).join('') : '<p class="missing">아직 마친 면접이 없습니다. 새 면접을 시작하면 결과가 여기에 쌓입니다.</p>';
     $$('[data-open-session]').forEach((b) => b.addEventListener('click', () => resumeSession(b.dataset.openSession)));
   } catch (err) {
+    box.closest('.card').hidden = false;
     box.innerHTML = `<p class="missing" role="alert">기록을 불러오지 못했습니다. ${esc(err.message)}</p>`;
   }
 }

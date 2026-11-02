@@ -159,14 +159,35 @@ const RULE_FOLLOWUP = {
   experience: { need: (t) => !/제가|저는|본인|직접/.test(t) || !/결과|확인|바뀌|개선|높였|줄였|측정/.test(t), text: '그 과정에서 본인이 직접 한 일과 그 결과를 구체적으로 말씀해 주시겠어요?' },
   reflection: { need: (t) => !/원인|때문|한계|부족/.test(t) || !/다음|개선|바꾸|다시|계획/.test(t), text: '그 한계가 생긴 원인과 다음에 바꿀 방법을 한 가지씩 말씀해 주시겠어요?' },
 };
-export function ruleFollowup(stage, text) {
-  const r = RULE_FOLLOWUP[stage];
-  return r && r.need(String(text)) ? r.text : null;
+const GENERIC = new Set('학생 학생부 활동 자료 말씀 말씀해 무엇 어떤 대해 관련 경험 과정 결과 직접 본인 질문 고등학교 대학 학과 지원 관심 공부 내용 부분 이번 다음 다시 어떻게 비교 측정 관찰 확인 분석 연구 실험 이유 근거 기준 영향 변화 차이 경향 빈도 집단 보고 행동 문제 시간 개념 학습 계획 입학 마지막 이해 역량 능력 라고 주세요 쓰셨 습니다'.split(' '));
+const PARTICLE = /(으로|에서|에게|까지|부터|은|는|이|가|을|를|에|의|와|과|로|도|만|한|된)$/u;
+const isGeneric = (w) => GENERIC.has(w) || [...GENERIC].some((g) => g.length >= 2 && w.startsWith(g));
+const contentStems = (text) => [...new Set(String(text || '').split(/[^\p{L}\p{N}]+/u).map((w) => w.replace(PARTICLE, '')).filter((w) => [...w].length >= 2 && !isGeneric(w)))];
+
+// 학생부·활동 근거와 답변이 같은 소재인지. 질문 문장·역량 이름은 쓰지 않는다(그 단어를 안 썼다고 다른 주제로 보지 않기 위해).
+// 규칙 폴백 전용이다. 뜻이 같은 다른 표현은 놓칠 수 있어, 게이트가 열린 Gemini 점수일 때는 쓰지 않는다.
+export function topicAligned(_question, evidence, answer) {
+  const keys = contentStems(evidence || '');
+  if (!keys.length) return true;
+  const ans = contentStems(answer);
+  return keys.some((w) => ans.some((a) => a === w || (Math.min(a.length, w.length) >= 2 && (a.includes(w) || w.includes(a)))));
 }
 
-// 답변 하나에 대한 참고 점수(1~4). 의미 평가가 아니라 표지어·길이 휴리스틱이다(ponytail: 실모델 평가와 사람 검수 비교 전까지 참고용).
-export function ruleTurnScore(text) {
+export function ruleFollowup(stage, text, ctx = {}) {
+  if (ctx.question && !topicAligned(ctx.question, ctx.evidence || '', text)) {
+    return '방금 답은 이 질문이 물은 내용과 다른 주제로 들립니다. 질문의 활동이나 개념으로 돌아와, 본인이 직접 한 일을 다시 말씀해 주시겠어요?';
+  }
+  const r = RULE_FOLLOWUP[stage];
+  if (!r || [...String(text).trim()].length >= 80) return null;
+  return r.need(String(text)) ? r.text : null;
+}
+
+// 답변 하나에 대한 참고 점수(1~4). 게이트가 닫힌 폴백이다. 질문·근거와 소재가 다르면 길이·표지어와 관계없이 1로 둔다.
+export function ruleTurnScore(text, ctx = {}) {
   const t = String(text); const n = [...t.trim()].length;
+  if (ctx.question && !topicAligned(ctx.question, ctx.evidence || '', t)) {
+    return { relevance: 1, specificity: 1, reasoning: 1, off_topic: true };
+  }
   const c = (re) => (re.test(t) ? 1 : 0);
   const cap = (v) => Math.max(1, Math.min(4, v));
   return {
@@ -183,7 +204,9 @@ export function validTurnScore(s) {
 export function competencyFit(competencies = [], turns = []) {
   return competencies.map((c) => {
     const words = String(c.label).split(/[\s·,/()]+/).map((w) => w.replace(/(역량|능력|태도|적합성|이해|적|의|과|와|및)$/u, '')).filter((w) => [...w].length >= 2);
-    const hits = turns.filter((t) => words.some((w) => t.text.includes(w)));
+    const linked = turns.filter((t) => (t.evidence_ids || []).includes(c.id));
+    const keyword = turns.filter((t) => words.some((w) => String(t.text || '').includes(w)));
+    const hits = [...new Map([...linked, ...keyword].map((t) => [t.turn_id, t])).values()];
     const avg = hits.length ? hits.reduce((s, t) => s + (t.turn_score ? (t.turn_score.relevance + t.turn_score.specificity + t.turn_score.reasoning) / 3 : 0), 0) / hits.length : 0;
     return { id: c.id, label: c.label, status: c.status, answers: hits.length, avg_score: Math.round(avg * 10) / 10, turn_ids: hits.map((t) => t.turn_id) };
   });

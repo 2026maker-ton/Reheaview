@@ -21,6 +21,7 @@ import { createCommandHandlers } from './handlers/commands.js';
 import { createFeedbackHandlers } from './handlers/feedback.js';
 import { createTransferHandlers } from './handlers/transfer.js';
 import { createAccountHandlers } from './handlers/account.js';
+import { createUserBasicsHandlers } from './handlers/user-basics.js';
 import { createDocumentHandlers } from './handlers/documents.js';
 import { createAdminHandlers } from './handlers/admin.js';
 import { createSttHandlers } from './handlers/stt.js';
@@ -151,6 +152,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     tts: createTtsHandlers(d),
     ops: createOpsHandlers(d),
     auth: createAuthHandlers(d),
+    userBasics: createUserBasicsHandlers(d),
   };
   const requestLog = [];
   const gate = createGate({ password: config.sitePassword, secret: config.gateSecret });

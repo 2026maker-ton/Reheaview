@@ -67,18 +67,22 @@ export function createProfileHandlers(d) {
         return err('validation_error', e.message || '사용할 수 없는 출처 URL입니다.', 422, { requestId, details: e.details || null });
       }
     }
-    // 학교 자동 탐색(데모 레지스트리만): 일치하면 합성 자료를 소스로 등록, 아니면 추측하지 않고 실패로 표시한다.
+    // 샘플 자동 등록은 서버 fixture로 판정된 프로필에만 한다. 실제 지원 정보는 붙여넣은 모집요강·학교 검색만 쓴다.
     let school_discovery = { status: 'not_requested' };
     if (body.school_name && ['university', 'highschool'].includes(orgType)) {
-      const sch = findSchool(body.school_name, orgType);
+      const sch = synthetic ? findSchool(body.school_name, orgType) : null;
       if (sch) {
         const t = now();
         const row = { id: randomUUID(), url: sch.official_url_demo, host: null, title: sch.title, publisher: sch.label, published_at: null, retrieved_at: t, confirmed_at: t, kind: 'demo_fixture', status: 'demo_fixture', quote: sch.text, owner_id: owner };
         store.addSource(profile.id, row);
         providedSources.push(row);
         school_discovery = { status: 'found', source_id: row.id, label: sch.label, school_name: sch.name };
-      } else {
+      } else if (synthetic) {
         school_discovery = { status: 'discovery_failed', message: '공식 자료를 찾지 못했습니다. 입학처 URL을 입력하거나 모집요강을 붙여넣어 주세요.' };
+      } else {
+        school_discovery = source.trim()
+          ? { status: 'user_supplied', message: '입력한 모집요강으로 분석합니다.' }
+          : { status: 'discovery_failed', message: '모집요강을 붙여넣거나 학교·전형 검색을 사용해 주세요.' };
       }
     }
     const pubNotice = body.source_text && providedSources.length === 0
@@ -131,7 +135,7 @@ export function createProfileHandlers(d) {
     // 지원서 주장은 모델 라우트(claude 또는 gemini)에서만 모델에 묻는다. 어느 쪽이든 규칙 결과가 하한선이다.
     const applicantModelRoute = claudeRoute || registry.route('claims.extract').provider === 'gemini';
     if (applicantModelRoute && maskedApplication.trim()) {
-      // 마스킹본만 전송(Gemini는 합성 판정 데이터에서만 게이트 통과). 모델 인용은 원문 그대로일 때만 채택(서버가 span·gaps 재계산), 규칙 결과는 하한선. 실패 시 규칙만 남는다.
+      // 마스킹본만 전송. 샘플이 아니어도 동의·REAL_DATA_ACK가 있으면 같은 공급자로 보낸다. 인용은 원문과 같을 때만 채택하고, 규칙 결과는 하한선이다.
       const cres = await caller.call('claims.extract', {
         ctx: requestContext(owner, { forceMock: !!body._forceMock, synthetic }), mockAlias: 'rule-based',
         reserve: { key: `profile:${profile.id}:claims`, amount: config.profileRate.reserve },
@@ -379,7 +383,7 @@ export function createProfileHandlers(d) {
   }
 
   // POST /profiles/:id/school-analysis — 등록·수집된 소스 본문(+붙여넣은 source_text)에서 인재상·전형요소·면접 형식을 뽑는다(docs/plan/09 §3.3).
-  // 외부 전송은 서버가 신뢰하는 합성 본문(데모 레지스트리·fixture 일치 본문)일 때만 게이트를 통과한다. 그 밖에는 규칙 기반이다.
+  // 실제 모집요강은 동의·공급자 REAL_DATA_ACK가 있으면 프로덕션 공급자로 분석한다. synthetic은 서버 fixture이고 본문이 그 샘플과 같을 때만 true다.
   async function analyzeSchool(owner, profileId, body = {}) {
     const p = store.getProfile(owner, profileId);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
@@ -399,7 +403,7 @@ export function createProfileHandlers(d) {
     if (pastedRaw.length >= 2 && !segments.some((s) => maskPii(s.text).normalize('NFC').trim() === pastedRaw)) segments.push({ id: 'pasted', title: '붙여넣은 모집요강', text: pastedRaw, trusted: !override && p.synthetic === true });
     if (!segments.length) return err('conflict', '분석할 자료가 없습니다. 입학처 URL을 입력하거나 모집요강을 붙여넣어 주세요.', 409);
     for (const s of used) s.confirmed_at = t; // 서버가 분석에 사용한 시점
-    const synthetic = segments.every((s) => s.trusted);
+    const synthetic = p.synthetic === true && segments.length > 0 && segments.every((s) => s.trusted);
     const mc = providerConstraintForOrg(p.org_type, { synthetic });
     const ctx = requestContext(owner, { forceMock: mc.forceMock, synthetic });
     const sourceText = segments.map((s) => s.text).join('\n\n');

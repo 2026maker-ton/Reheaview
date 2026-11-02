@@ -20,6 +20,17 @@ export function saveDraft(values, extra = {}) {
 export function clearDraft(uid = state.user?.id) {
   try { localStorage.removeItem(`intervu.draft.${uid || 'anon'}`); } catch { /* noop */ }
 }
+const FROM_DRAFT = 'reheaview.fromDraft';
+export function markDraftForInterview() {
+  try { sessionStorage.setItem(FROM_DRAFT, '1'); } catch { /* noop */ }
+}
+export function clearDraftAfterInterview() {
+  let marked = false;
+  try { marked = sessionStorage.getItem(FROM_DRAFT) === '1'; } catch { /* noop */ }
+  if (!marked) return;
+  clearDraft();
+  try { sessionStorage.removeItem(FROM_DRAFT); } catch { /* noop */ }
+}
 
 // 대시보드 카드: 임시저장이 있을 때만 보인다.
 export function renderDraftCard() {

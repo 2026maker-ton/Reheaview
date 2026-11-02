@@ -2,6 +2,7 @@
 // 비밀번호·해시·토큰 원문은 응답·로그에 넣지 않는다. 서버는 토큰의 SHA-256만 저장한다.
 import { hashPassword, verifyPassword, randomToken, sha256Hex, randomUUID } from '../crypto.js';
 import { guestAiReady } from '../../domain/guest-policy.js';
+import { basicsComplete } from './user-basics.js';
 
 export const SIGNUP_NOTICE_VERSION = 'signup-2026-10-31';
 const TOKEN_TTL_MS = 7 * 864e5;
@@ -20,7 +21,12 @@ export function createAuthHandlers(d) {
     store.putAuthSession(await sha256Hex(token), { owner, expires_at: Date.now() + TOKEN_TTL_MS, created_at: now() });
     return token;
   }
-  const me = (u) => ({ id: u.id, email: u.guest ? null : u.email, name: u.name, ...(u.guest ? { guest: true, ai_consent: guestAiReady(store.getConsent(u.id)) } : {}) });
+  const me = (u) => ({
+    id: u.id,
+    email: u.guest ? null : u.email,
+    name: u.name,
+    ...(u.guest ? { guest: true, ai_consent: guestAiReady(store.getConsent(u.id)) } : { basics_complete: basicsComplete(store, u.id) }),
+  });
 
   async function signup(body, ip) {
     const email = String(body?.email || '').trim().toLowerCase();

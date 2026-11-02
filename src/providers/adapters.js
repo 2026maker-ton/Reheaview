@@ -6,6 +6,7 @@ import { buildSchoolPrompt } from './prompts/school.js';
 import { buildQuestionsMessages, buildTrendDecideMessages } from './prompts/questions.js';
 import { buildStageMessages, buildTurnMessages, buildSchoolSearchMessages } from './prompts/interview.js';
 import { buildCommentMessages } from './prompts/comment.js';
+import { buildAnswerReviewMessages } from './prompts/review.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 모델 JSON 파싱: 코드 펜스 제거. 실패하면 invalid로 알린다(호출 래퍼가 규칙 기반 폴백).
@@ -212,6 +213,13 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       return { ...parsed, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
     },
     // 보고서 한줄평(report.comment): 면접관 말투 한줄평 두 개. 길이·금지 표현 검증은 호출자(서버)가 한다.
+    async reviewAnswers(input) {
+      const { system, user } = buildAnswerReviewMessages(input);
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 2000 }));
+      const parsed = parseJson(r.text);
+      if (!Array.isArray(parsed?.turns)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      return { turns: parsed.turns, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
+    },
     async writeComments(input) {
       const { system, user } = buildCommentMessages(input);
       const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 400 }));

@@ -3,8 +3,10 @@ import { state, persistSaved } from './state.js';
 import { toast } from './toast.js';
 import { loadRecent, restoreFromStorage } from '../screens/dashboard.js';
 import { renderReport } from '../screens/feedback.js';
+import { renderProfile } from '../screens/profile.js';
 
-export const SCREENS = ['login', 'dashboard', 'application', 'evidence', 'setup', 'room', 'feedback'];
+export const SCREENS = ['landing', 'login', 'profile', 'dashboard', 'application', 'evidence', 'setup', 'room', 'feedback'];
+const NEEDS_BASICS = ['dashboard', 'application', 'evidence', 'setup', 'room', 'feedback'];
 
 export function go(name) {
   if (!SCREENS.includes(name)) name = 'dashboard';
@@ -15,12 +17,14 @@ export function go(name) {
   renderScreen(name);
 }
 
-const TITLES = { login: '로그인', dashboard: '대입 면접 연습', application: '지원 정보', evidence: '근거 확인', setup: '면접 준비', room: '면접실', feedback: '면접 결과' };
+const TITLES = { landing: 'Reheaview', login: '로그인', profile: '내 정보', dashboard: '대입 면접 연습', application: '지원 정보', evidence: '근거 확인', setup: '면접 준비', room: '면접실', feedback: '면접 결과' };
 
 // 선행 단계 없이 들어온 화면은 알맞은 화면으로 되돌린다(새로고침·직접 URL·뒤로가기 공통).
 function guard(name) {
-  if (name !== 'login' && !state.user) return ['login', '로그인이 필요합니다.'];
-  if (name === 'login' && state.user) return ['dashboard', ''];
+  if (name !== 'login' && name !== 'landing' && !state.user) return ['login', '로그인이 필요합니다.'];
+  if (name === 'login' && state.user && !state.user.guest) return ['dashboard', ''];
+  if (name === 'profile' && (!state.user || state.user.guest)) return ['dashboard', ''];
+  if (NEEDS_BASICS.includes(name) && state.user && !state.user.guest && state.user.basics_complete === false) return ['profile', '기본 정보를 먼저 입력해 주세요.'];
   if (name === 'evidence' && !state.profile) return ['application', '지원 정보를 먼저 입력해 주세요.'];
   if (name === 'setup') {
     if (!state.profile) return ['application', '지원 정보를 먼저 입력해 주세요.'];
@@ -56,6 +60,7 @@ export function renderScreen(name) {
   document.title = `${TITLES[name] || 'Reheaview'} — Reheaview`;
   announce(`${TITLES[name] || name} 화면`);
   SCREENS.forEach((s) => { const el = $(`#screen-${s}`); if (el) el.hidden = s !== name; });
+  if (name === 'profile') renderProfile();
   if (name === 'dashboard') loadRecent();
   if (name === 'feedback' && state.lastReport && state.session?.state !== 'completing') renderReport(state.lastReport);
   const heading = $(`#screen-${name} h1`);
@@ -63,7 +68,7 @@ export function renderScreen(name) {
   window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
 }
 
-export const currentTarget = () => { const raw = (location.hash || '').replace(/^#\/?/, '') || 'dashboard'; return SCREENS.includes(raw) ? raw : 'dashboard'; };
+export const currentTarget = () => { const raw = (location.hash || '').replace(/^#\/?/, '') || 'landing'; return SCREENS.includes(raw) ? raw : 'landing'; };
 
 window.addEventListener('hashchange', async () => {
   const name = currentTarget();

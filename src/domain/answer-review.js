@@ -111,6 +111,40 @@ export function maskRisk(text, spans) {
   return out + t.slice(i);
 }
 
+const STOCK = new Set([
+  '질문의 핵심에 바로 답했습니다.',
+  '본인의 행동과 결과가 구체적으로 드러났습니다.',
+  '판단의 이유가 설명됐습니다.',
+  '질문에 먼저 직접 답하고(결론), 그 뒤에 설명을 이어 보세요.',
+  '본인이 직접 한 행동과 결과(수치·관찰)를 한 가지씩 넣어 보세요.',
+  '그렇게 판단한 이유나 비교한 대안, 한계를 한 문장 덧붙여 보세요.',
+]);
+const REVIEW_BANNED = /합격|불합격|가능성|확률|순위|백분위|거짓말|정직|성격/;
+
+// Gemini가 질문·근거·답변을 보고 낸 점수·문장. 고정 예시 문장·금지 표현·빠진 문항이 있으면 통째로 버린다.
+export function validateAnswerReview(out, turnIds) {
+  const ids = [...new Set(turnIds || [])];
+  if (!out || !Array.isArray(out.turns) || !ids.length) return null;
+  const byId = new Map();
+  for (const row of out.turns) {
+    if (!ids.includes(row?.turn_id) || byId.has(row.turn_id)) continue;
+    const score = {};
+    for (const k of ['relevance', 'specificity', 'reasoning']) {
+      const n = Number(row[k]);
+      if (!Number.isInteger(n) || n < 1 || n > 4) return null;
+      score[k] = n;
+    }
+    const good = String(row.good || '').trim();
+    const fix = String(row.fix || '').trim();
+    if ([...good].length > 180 || [...fix].length > 180) return null;
+    if (!good && !fix) return null;
+    if (STOCK.has(good) || STOCK.has(fix) || REVIEW_BANNED.test(`${good}\n${fix}`)) return null;
+    byId.set(row.turn_id, { turn_id: row.turn_id, ...score, good, fix });
+  }
+  if (byId.size !== ids.length) return null;
+  return { turns: ids.map((id) => byId.get(id)) };
+}
+
 const DIM = {
   relevance: { label: '질문 적합성', fix: '질문에 먼저 직접 답하고(결론), 그 뒤에 설명을 이어 보세요.', good: '질문의 핵심에 바로 답했습니다.' },
   specificity: { label: '구체성', fix: '본인이 직접 한 행동과 결과(수치·관찰)를 한 가지씩 넣어 보세요.', good: '본인의 행동과 결과가 구체적으로 드러났습니다.' },
@@ -120,6 +154,7 @@ const DIM = {
 // 질문별 한 줄 코멘트: 가장 낮은 차원에서 고칠 점 하나, 가장 높은 차원에서 잘한 점 하나. 근거는 turn_score(면접 중 참고 점수)와 제한시간 초과 여부다.
 export function answerComment({ turn_score: ts, cut_off: cut = false, text = '' } = {}) {
   const n = [...String(text).trim()].length;
+  if (ts?.off_topic) return { good: null, fix: '질문과 학생부·활동에서 물은 내용과 다른 주제로 답했습니다. 그 질문의 활동이나 개념으로 돌아와 본인이 한 일을 말해 보세요.', basis: '질문·근거와 답변의 소재가 달라 참고 점수를 1로 두었습니다. 뜻이 같은 다른 표현은 규칙으로 알아보지 못하며, 이 점수는 검증된 평가가 아닙니다.', weakest: 'relevance', strongest: null };
   if (!ts) return { good: null, fix: n < 20 ? '답변이 너무 짧아 판단하기 어렵습니다. 핵심을 두세 문장으로 말해 보세요.' : null, basis: '참고 점수가 없어 답변 길이만 살폈습니다.', weakest: null, strongest: null };
   const keys = Object.keys(DIM);
   const sorted = [...keys].sort((a, b) => ts[a] - ts[b]);

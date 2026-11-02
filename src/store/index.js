@@ -6,7 +6,7 @@ export const STORE_METHODS = [
   'createProfile', 'getProfile', 'setExtracted', 'approveVersion', 'getVersion',
   'addSource', 'listSources', 'setSourceFetch', 'getSourceFetches', 'setInstitution', 'getInstitution', 'recordProfileCall', 'recordRate', 'addConsent', 'getConsent',
   // 계정·로그인 세션
-  'createUser', 'getUser', 'getUserByEmail', 'deleteUser', 'putAuthSession', 'getAuthSession', 'deleteAuthSession',
+  'createUser', 'getUser', 'getUserByEmail', 'updateUser', 'getUserBasics', 'setUserBasics', 'deleteUser', 'putAuthSession', 'getAuthSession', 'deleteAuthSession',
   // 문서(WP-C1)
   'createDocument', 'getDocument', 'listDocuments', 'addDocumentRevision', 'getDocumentRevisions',
   // 세션·턴·전사

@@ -67,12 +67,27 @@ test('S1 profile: default org_type is university; school fields normalize to tar
   assert.equal(p.data.school_discovery.status, 'found');
 }));
 
+test('S1 real posting is analyzed by the provider when REAL_DATA_ACK and consent are set', async () => {
+  await withProviders({ env: { ...LIVE, GEMINI_REAL_DATA_ACK: 'true' }, respond: (c) => (isSchoolCall(c) ? reply({ talent_traits: [{ label: '탐구', quote: '탐구 역량을 중시합니다' }], admission_elements: [], interview_format: [] }) : claimsStub()) }, async (ctx) => {
+    const r = await ctx.g('/api/v1/profiles', { method: 'POST', body: { org_type: 'university', school_name: '서울대학교', department: '생명과학부', source_text: '인재상: 탐구 역량을 중시합니다.', application_text: '산책 시간과 짖음을 비교해 관찰했다.' } });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    assert.equal(r.data.synthetic, false);
+    assert.equal(r.data.school_discovery.status, 'user_supplied');
+    assert.equal((await ctx.g(`/api/v1/profiles/${r.data.id}`)).data.sources.some((s) => s.kind === 'demo_fixture'), false);
+    const n = ctx.calls.filter(isSchoolCall).length;
+    const a = await analyze(ctx.g, r.data.id);
+    assert.equal(a.status, 200, JSON.stringify(a.data));
+    assert.ok(ctx.calls.filter(isSchoolCall).length > n);
+    assert.equal(a.data.analysis_mode, 'gemini');
+  });
+});
+
 test('S1 profile: unknown school -> discovery_failed with guidance, no guessed source', () => withApp({}, async (c) => {
   await c('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true, notice_version: 'v1' } });
   const r = await post(c, { org_type: 'university', school_name: '존재하지않는대학교', department: '철학과', source_text: '' , application_text: '저는 독서 토론 동아리 활동을 했습니다.' });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.school_discovery.status, 'discovery_failed');
-  assert.match(r.data.school_discovery.message, /입학처 URL을 입력하거나 모집요강을 붙여넣어/);
+  assert.match(r.data.school_discovery.message, /모집요강을 붙여넣거나 학교·전형 검색/);
   const p = await c(`/api/v1/profiles/${r.data.id}`);
   assert.equal(p.data.sources.length, 0);
   // 자료가 하나도 없으면 분석은 추측하지 않고 422로 안내한다.
@@ -142,7 +157,7 @@ test('S1 analyze: all quotes fabricated, bad JSON, or 429 -> rule_based fallback
 test('S1 analyze: pasted posting without 면접 text -> 면접 형식 미확인 (no guessing)', () => withApp({}, async (c) => {
   await c('/api/v1/consents', { method: 'POST', body: { age_18_confirmed: true, notice_version: 'v1' } });
   const r = await post(c, { org_type: 'university', school_name: '레지스트리에없는대학교', department: '컴퓨터공학과', source_text: '인재상: 문제 해결 역량, 협업 태도. 전형 요소: 학생부 교과 성적과 서류 평가를 반영한다.', application_text: '저는 코딩 동아리에서 앱을 만들었습니다.' });
-  assert.equal(r.data.school_discovery.status, 'discovery_failed');
+  assert.equal(r.data.school_discovery.status, 'user_supplied');
   const a = await analyze(c, r.data.id);
   assert.equal(a.status, 200);
   assert.equal(a.data.analysis_mode, 'rule_based');

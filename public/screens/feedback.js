@@ -247,14 +247,26 @@ function planHtml(plan) {
   if (!st.length) return '<p class="meta">질문 계획을 불러오지 못했습니다.</p>';
   return `<ol class="plan-list">${st.map((s) => `<li><span class="stage-chip">${esc(STAGE_LABEL[s.stage] || s.stage)}</span><span class="val">${esc(s.text)}</span>${s.evidence?.length ? `<span class="meta">근거: ${s.evidence.map((e) => esc(e.kind === 'application' ? `학생부·활동 “${String(e.quote).slice(0, 30)}…”` : e.label)).join(', ')}</span>` : ''}</li>`).join('')}</ol>`;
 }
+function submittedHtml(p) {
+  if (!p) return '';
+  const blocks = [
+    ['대학교', p.school_name || p.target_name],
+    ['학과', p.department || p.role],
+    ['전형', p.track],
+    ['모집요강·인재상', p.source_text],
+    ['학생부·활동', p.application_text],
+  ].filter(([, v]) => String(v || '').trim());
+  if (!blocks.length) return '';
+  return `<h3>입력한 지원 정보</h3>${blocks.map(([k, v]) => `<section class="submitted-block"><h4>${esc(k)}</h4><p class="profile-pre">${esc(v)}</p></section>`).join('')}`;
+}
 async function loadDetail() {
   const id = state.profile?.id;
   const host = $('#reportDetail');
   if (!id || !host) return;
-  const [cl, plan] = await Promise.all([api(`/profiles/${id}/claims`).catch(() => null), api(`/profiles/${id}/plan`).catch(() => null)]);
-  if (!cl && !plan) { host.hidden = true; return; }
+  const [cl, plan, profile] = await Promise.all([api(`/profiles/${id}/claims`).catch(() => null), api(`/profiles/${id}/plan`).catch(() => null), api(`/profiles/${id}`).catch(() => null)]);
+  if (!cl && !plan && !profile) { host.hidden = true; return; }
   host.hidden = false;
-  host.querySelector('.detail-body').innerHTML = `<h3>학생부·활동 자료에서 확인한 내용</h3>${claimsHtml(cl?.claims)}<h3>면접 질문 목록</h3>${planHtml(plan)}`;
+  host.querySelector('.detail-body').innerHTML = `${submittedHtml(profile)}<h3>학생부·활동 자료에서 확인한 내용</h3>${claimsHtml(cl?.claims)}<h3>면접 질문 목록</h3>${planHtml(plan)}`;
 }
 
 // 같은 질문 계획으로 여러 번 본 면접의 회차 목록(2회 이상일 때만 탭을 보인다). 회차별 보고서는 처음 열 때 불러온다.
@@ -309,7 +321,7 @@ export async function renderReport(r, opts = {}) {
     <section class="report-main" aria-labelledby="qaTitle"><h2 id="qaTitle">질문과 답변${InfoBtn('report.qa')}</h2>${tr.length ? transcriptHtml(tr) : '<p class="missing">기록된 답변이 없습니다.</p>'}</section>
     ${actions.length ? `<section class="card report-actions"><h2>다음 연습${InfoBtn('report.actions')}${InfoBtn(BASIS.actions(), { kind: 'basis' })}</h2><ol>${actions.map((a) => `<li><strong>${esc(dimLabel(a.dimension_id))}</strong> ${esc(a.action)}</li>`).join('')}</ol></section>` : ''}
 
-    <details class="card report-detail" id="reportDetail" hidden><summary>세부 정보 · 학생부·활동 근거와 질문 목록${InfoBtn('report.detail')}</summary><div class="detail-body"></div></details>
+    <details class="card report-detail" id="reportDetail" hidden><summary>입력한 지원 정보 · 학생부·활동 근거와 질문 목록${InfoBtn('report.detail')}</summary><div class="detail-body"></div></details>
     <div class="actions"><button class="primary" type="button" id="retryBtn">다시 면접 보기</button><button class="ghost" type="button" id="reportHomeBtn">처음으로</button><button class="ghost" type="button" id="issueBtn">오류 신고</button></div>`;
   bindTimelineProbes(body);
   loadDetail();

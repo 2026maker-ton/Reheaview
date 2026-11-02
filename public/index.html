@@ -5,9 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Reheaview — 대입 면접 연습</title>
 <meta name="description" content="대학·학과·전형에 맞춘 일반 면접 5단계 연습과 근거 기반 결과." />
+<meta name="theme-color" content="#D7F56D" />
+<link rel="icon" type="image/svg+xml" href="/logo.svg" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
 <link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/landing.css" />
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
@@ -15,7 +18,9 @@
 <!-- 입장 비밀번호: 서버가 /api를 잠그고, 통과하면 앱을 보여 준다 -->
 <section id="gateScreen" class="gate" aria-labelledby="gateTitle" hidden>
   <form class="card form-card gate-card" id="gateForm" novalidate>
+    <img class="entry-logo" src="/logo.svg" alt="" width="64" height="64" />
     <h1 id="gateTitle">Reheaview</h1>
+    <p class="fine">나의 경험을, 나의 답변으로.</p>
     <label class="field"><span>입장 비밀번호</span><input id="gatePassword" type="password" autocomplete="off" maxlength="200" required /></label>
     <div class="actions"><button class="primary" type="submit" id="gateBtn">입장</button></div>
     <p class="fine" id="gateError" role="alert"></p>
@@ -23,12 +28,11 @@
 </section>
 
 <header class="topbar">
-  <div class="brand" role="link" tabindex="0" data-go="dashboard" aria-label="Reheaview 메인으로 이동" style="cursor:pointer">
-    <span class="mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8.5 9.5c.8-1 2-1.6 3.5-1.6s2.7.6 3.5 1.6"/><path d="M9 13h.01M12 13h.01M15 13h.01"/></svg>
-    </span>
-    <div><strong>Reheaview</strong></div>
-  </div>
+  <a class="brand" href="#/dashboard" aria-label="Reheaview 메인으로 이동">
+    <img class="brand-logo" src="/logo.svg" alt="" width="42" height="42" />
+    <strong>Reheaview</strong>
+  </a>
+  <a class="landing-header-start" href="#/login">무료로 시작하기</a>
   <div class="topbar-right">
     <a class="privacy-link" href="/privacy.html" target="_blank" rel="noopener">개인정보 보호 정책</a>
     <button class="ai-switch" id="aiSwitch" type="button" role="switch" aria-checked="true" aria-label="AI 기능" title="AI 기능 켜기·끄기" hidden><span class="ai-switch-track" aria-hidden="true"><span class="ai-switch-knob"></span></span><span class="ai-switch-label">AI</span></button>
@@ -36,7 +40,7 @@
     <div class="user-menu" id="userMenu" hidden>
       <span class="user-name" id="userName"></span>
       <button class="ghost small" type="button" id="guestLoginBtn" hidden>로그인·가입</button>
-      <button class="ghost small" type="button" id="myDataBtn">내 데이터</button>
+      <button class="ghost small" type="button" id="myProfileBtn" hidden>내 정보</button>
       <button class="ghost small" type="button" id="logoutBtn">로그아웃</button>
     </div>
   </div>
@@ -58,7 +62,7 @@
 
   <!-- 0. 로그인 -->
   <section class="screen" id="screen-login" data-screen="login" aria-labelledby="loginTitle" hidden>
-    <div class="screen-head"><h1 id="loginTitle">로그인</h1></div>
+    <div class="screen-head auth-heading"><img class="entry-logo" src="/logo.svg" alt="" width="64" height="64" /><p class="section-label">나의 경험을, 나의 답변으로.</p><h1 id="loginTitle">로그인</h1></div>
     <div class="card form-card auth-card">
       <div class="workspace-tabs" role="tablist" aria-label="로그인 또는 가입">
         <button type="button" role="tab" id="tabLogin" aria-controls="loginForm" aria-selected="true">로그인</button>
@@ -93,15 +97,107 @@
     </div>
   </section>
 
-  <!-- 1. 대시보드 -->
+  <!-- 랜딩(소개 페이지) -->
+  <section class="screen" id="screen-landing" data-screen="landing" aria-labelledby="landingTitle" hidden>
+    <div class="re-stage">
+      <div class="re-stage-intro">
+        <div class="re-title-group">
+          <p class="re-eyebrow">REHEAVIEW <span>대입 면접 리허설</span></p>
+          <h1 id="landingTitle">글로 쓴 나를,<br />말로 만나는 시간.</h1>
+        </div>
+        <div class="re-invitation">
+          <p>학생부 속 한 줄의 경험이<br />나만의 답변이 될 때까지.<br />면접 전, 여기서 먼저 말해보세요.</p>
+          <button class="re-button" type="button" data-go="login">무료로 시작하기 <span aria-hidden="true">↗</span></button>
+          <span class="re-age">만 18세 이상 대입 지원자를 위한 연습</span>
+        </div>
+      </div>
+      <div class="re-scene" aria-hidden="true">
+        <img src="/assets/landing-logo.png" alt="" width="1225" height="817" fetchpriority="high" />
+      </div>
+      <div class="re-stage-caption"><span>당신의 경험에서 시작합니다.</span><span>대학 · 학과 · 전형에 맞춘 질문</span></div>
+    </div>
+
+    <section class="re-story" aria-labelledby="reStoryTitle">
+      <div class="re-story-copy">
+        <p class="re-eyebrow">서류에서 대화로</p>
+        <h2 id="reStoryTitle">적어둔 경험에는<br />더 할 이야기가 있으니까.</h2>
+        <p>무엇을 했는지에서 한 걸음 더.<br />그때의 선택, 나의 역할, 배운 점을 묻습니다.<br />Reheaview는 내가 쓴 이야기에서 질문을 찾습니다.</p>
+      </div>
+      <figure class="re-example">
+        <figcaption>이렇게 질문합니다 <span>가상의 활동 예시</span></figcaption>
+        <div class="re-source"><span>학생부·활동 경험</span><p>“동아리 프로젝트에서 팀원들의<br />의견을 조율했습니다.”</p></div>
+        <div class="re-connection" aria-hidden="true">↓</div>
+        <div class="re-question"><img src="/logo.svg" alt="" width="36" height="36" /><p>의견이 달랐던 순간,<br /><strong>본인이 내린 결정은 무엇이었나요?</strong></p></div>
+      </figure>
+    </section>
+
+    <section class="re-process" aria-labelledby="reProcessTitle">
+      <div class="re-process-heading"><p class="re-eyebrow">연습의 흐름</p><h2 id="reProcessTitle">준비한 이야기부터,<br class="re-mobile-break" /> 직접 말한 답변까지.</h2></div>
+      <ol>
+        <li><span class="re-step">01</span><h3>나의 경험을 꺼내고</h3><p>지원할 대학·학과·전형과 <br />학생부, 활동 경험을 입력합니다.</p></li>
+        <li><span class="re-step">02</span><h3>질문의 근거를 살피고</h3><p>지원서의 주장과 학교 자료를 확인한 뒤 <br />면접에 사용할 근거를 승인합니다.</p></li>
+        <li><span class="re-step">03</span><h3>말해보고, 돌아봅니다</h3><p>일반 면접 5단계로 답해보고, <br />내 발언에 근거한 코칭을 확인합니다.</p></li>
+      </ol>
+    </section>
+
+    <div class="re-closing">
+      <div><p class="re-eyebrow">이제, 나의 차례</p><h2>첫마디부터 시작해볼까요?</h2></div>
+      <button class="re-button" type="button" data-go="login">무료로 시작하기 <span aria-hidden="true">↗</span></button>
+    </div>
+    <footer class="re-footer"><span class="re-wordmark">Reheaview</span><p>질문과 코칭은 검증 전 참고용입니다.</p><a href="/privacy.html" target="_blank" rel="noopener">개인정보 보호 정책 ↗</a></footer>
+  </section>
+
+  <!-- 내 정보(회원) -->
+  <section class="screen" id="screen-profile" data-screen="profile" aria-labelledby="profileTitle" hidden>
+    <div class="screen-head profile-head">
+      <button class="back-btn profile-back" type="button" data-go="dashboard" aria-label="처음으로" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>처음으로</span></button>
+      <div>
+        <p class="section-label" id="profileEyebrow">계정</p>
+        <h1 id="profileTitle">내 정보</h1>
+        <p class="screen-description" id="profileLead">면접 연습에 쓰는 기본 정보를 미리 등록해 두면 지원 정보 입력이 수월합니다.</p>
+      </div>
+    </div>
+    <div id="profileStepper" hidden></div>
+    <div class="card form-card profile-card" id="profileCard">
+      <div id="profileOnboarding" hidden></div>
+      <div id="profileView" hidden>
+        <dl class="profile-dl">
+          <div><dt>이름</dt><dd id="profileViewName"></dd></div>
+          <div><dt>출생 연도</dt><dd id="profileViewBirth"></dd></div>
+          <div><dt>학생부 요약</dt><dd id="profileViewRecord" class="profile-pre"></dd></div>
+          <div><dt>활동·특기 요약</dt><dd id="profileViewActivity" class="profile-pre"></dd></div>
+          <div><dt>면접 메모</dt><dd id="profileViewNotes" class="profile-pre"></dd></div>
+        </dl>
+        <div class="actions"><button class="primary" type="button" id="profileEditBtn">정보 수정</button></div>
+      </div>
+      <form id="profileForm" novalidate hidden>
+        <p class="fine" id="profileFormHint">저장·수정하려면 비밀번호를 입력해 주세요.</p>
+        <label class="field"><span>비밀번호</span><input name="password" type="password" autocomplete="current-password" maxlength="128" /></label>
+        <label class="field"><span>이름</span><input name="name" autocomplete="name" required maxlength="20" /></label>
+        <label class="field"><span>출생 연도</span><input name="birth_year" type="number" inputmode="numeric" min="1940" max="2010" required /><span class="fine" id="profileAgeHint"></span></label>
+        <label class="field"><span>학생부 요약</span><textarea name="student_record" rows="6" maxlength="15000" placeholder="성적·세특·행동특성 등 면접에서 참고할 요약(블라인드 금지 정보는 넣지 마세요)"></textarea></label>
+        <label class="field"><span>활동·특기 요약</span><textarea name="activity_summary" rows="5" maxlength="8000" placeholder="동아리·봉사·수상·프로젝트 등"></textarea></label>
+        <label class="field"><span>면접 메모 (선택)</span><textarea name="intro_notes" rows="3" maxlength="4000" placeholder="지원 동기·강조하고 싶은 경험 메모"></textarea></label>
+        <p class="fine" id="profileError" role="alert"></p>
+        <div class="actions"><button class="ghost" type="button" id="profileCancelBtn">취소</button><button class="primary" type="submit" id="profileSaveBtn">저장</button></div>
+      </form>
+      <section class="profile-danger" id="profileDanger" hidden aria-labelledby="profileDangerTitle">
+        <h2 id="profileDangerTitle">면접 데이터 폐기</h2>
+        <p class="fine">면접 답변·결과만 지우거나, 계정과 모든 자료를 삭제할 수 있습니다. 되돌릴 수 없습니다.</p>
+        <div class="actions"><button class="ghost danger" type="button" id="discardSessionsBtn">면접 기록 모두 폐기</button><button class="ghost danger" type="button" id="discardAccountBtn">계정과 모든 자료 삭제</button></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- 1. 대시보드(메인 페이지) -->
   <section class="screen" id="screen-dashboard" data-screen="dashboard" aria-labelledby="dashboardTitle" hidden>
-    <div class="screen-head"><h1 id="dashboardTitle">대입 면접 연습</h1></div>
-    <div class="journey-grid" role="group" aria-label="면접 시작">
-      <button class="journey-card" type="button" id="journeyUniversity" data-journey="university">
-        <span class="journey-tag">대입</span>
-        <strong>대학·학과·전형 면접</strong>
-        <span class="journey-cta">시작 →</span>
-      </button>
+    <div class="screen-head main-head">
+      <div>
+        <p class="section-label">내 연습 공간</p>
+        <h1 id="dashboardTitle">오늘의 면접 연습</h1>
+        <ol class="prod-path" aria-label="실제 연습 순서"><li><span>1</span>지원 정보</li><li><span>2</span>근거 확인</li><li><span>3</span>면접</li></ol>
+      </div>
+      <button class="primary hero-start" type="button" id="journeyUniversity" data-journey="university"><span>새 면접 시작</span></button>
     </div>
     <section class="card continue-card" id="draftCard" aria-labelledby="draftTitle" hidden>
       <div class="card-head">
@@ -123,20 +219,15 @@
 
   <!-- 2. 지원 정보 -->
   <section class="screen" id="screen-application" data-screen="application" aria-labelledby="applicationTitle" hidden>
-    <div class="screen-head"><button class="back-btn" type="button" data-go="dashboard" aria-label="처음으로"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>처음으로</span></button><h1 id="applicationTitle">지원 정보</h1></div>
+    <div class="screen-head"><button class="back-btn" type="button" data-go="dashboard" aria-label="처음으로"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>처음으로</span></button><h1 id="applicationTitle">지원 정보</h1><p class="screen-description">어떤 대학에, 어떤 경험을 이야기하고 싶나요?</p></div>
     <div id="appStepper"></div>
     <form class="card form-card" id="applicationForm" novalidate>
-      <div class="actions sample-row">
-        <label class="field sample-pick"><span class="sr-only">샘플 선택</span><select id="fixtureSelect"><option value="">샘플 선택</option></select></label>
-        <button class="ghost" type="button" id="loadFixtureBtn">샘플 불러오기</button>
-        <span id="fixtureBadge" class="state-badge info" hidden>샘플 · 예시 설명</span>
-      </div>
       <div class="field-row">
         <label class="field"><span>대학교<button class="info-btn" type="button" aria-expanded="false" aria-label="설명 보기" data-info-key="app.school">i</button></span><input name="school_name" maxlength="100" autocomplete="organization" placeholder="예: ○○대학교" /></label>
         <label class="field"><span>학과·모집단위</span><input name="department" maxlength="100" autocomplete="off" placeholder="예: 생명과학부" /></label>
         <label class="field"><span>전형</span><input name="track" maxlength="100" autocomplete="off" placeholder="예: 학생부종합(일반전형)" /></label>
       </div>
-      <label class="field"><span>학생부·활동 경험<button class="info-btn" type="button" aria-expanded="false" aria-label="설명 보기" data-info-key="app.resume">i</button></span><textarea name="application_text" id="applicationText" rows="8" maxlength="20000"></textarea></label>
+      <label class="field"><span>학생부·활동 경험<button class="info-btn" type="button" aria-expanded="false" aria-label="설명 보기" data-info-key="app.resume">i</button></span><textarea name="application_text" id="applicationText" rows="8" maxlength="20000" placeholder="내 정보에 적어 둔 학생부·활동이 비어 있으면 여기에 불러옵니다."></textarea><span class="fine" id="basicsFillNote" hidden>내 정보에 저장한 학생부·활동을 불러왔습니다. 이 면접에 맞게 고쳐도 됩니다.</span></label>
       <div class="upload-row">
         <button class="ghost small" type="button" data-upload="resume">학생부 파일 올리기</button>
         <button class="info-btn" type="button" aria-expanded="false" aria-label="설명 보기" data-info-key="app.upload">i</button>
@@ -146,6 +237,11 @@
       <details id="postingDetails" class="accordion"><summary>모집요강·인재상 (선택)<button class="info-btn" type="button" aria-expanded="false" aria-label="설명 보기" data-info-key="app.posting">i</button></summary>
         <label class="field"><span class="sr-only">모집요강·인재상</span><textarea name="source_text" id="sourceText" rows="6" maxlength="20000" placeholder="대학이 공개한 모집요강이나 인재상 문구를 붙여 넣어 주세요."></textarea></label>
       </details>
+      <div class="actions sample-row">
+        <label class="field sample-pick"><span>예시로 채우기</span><select id="fixtureSelect"><option value="">예시 선택</option></select></label>
+        <button class="ghost" type="button" id="loadFixtureBtn">예시 불러오기</button>
+        <span id="fixtureBadge" class="state-badge info" hidden>예시 · 공식 자료 아님</span>
+      </div>
       <div class="actions sticky-actions">
         <button class="primary" type="submit" id="analyzeBtn">다음</button>
         <button class="ghost" type="button" id="draftSaveBtn">임시저장</button>
@@ -232,7 +328,7 @@
 
   <!-- 6. 결과 -->
   <section class="screen" id="screen-feedback" data-screen="feedback" aria-labelledby="feedbackTitle" hidden>
-    <div class="screen-head"><h1 id="feedbackTitle">면접 결과</h1></div>
+    <div class="screen-head"><p class="section-label">나의 답변 돌아보기</p><h1 id="feedbackTitle">면접 결과</h1></div>
     <div id="feedbackBody" aria-live="polite"></div>
   </section>
 

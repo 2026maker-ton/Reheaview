@@ -1,4 +1,4 @@
-// 7화면 UI E2E (Mock 전용, 외부 키 없음, 2026-10-31)
+// 랜딩 + 7화면 UI E2E (Mock 전용, 외부 키 없음)
 // - 실제 서버를 임시 포트로 띄우고 Chromium으로 가입→대시보드→지원 정보(샘플)→근거 확인(렌치)→면접 준비→면접실(텍스트)→결과→로그아웃을 검증한다.
 // - window.prompt/confirm 이 호출되면 실패한다. 1440 / 768 / 390 폭에서 가로 오버플로가 없어야 한다.
 //
@@ -188,8 +188,18 @@ async function main() {
       await page.setViewportSize({ width: w, height: 900 });
       const o = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(o <= 1, `${label}: ${w}px 가로 오버플로 없음`, `+${o}px`);
+      if (w === 390) {
+        const mobile = await page.evaluate(A11Y_AUDIT, { tap: true });
+        check(!mobile.contrast.length, `${label}: 모바일 대비`, mobile.contrast.slice(0, 5).join(', '));
+        check(!mobile.tap.length, `${label}: 모바일 터치 영역 44px`, mobile.tap.slice(0, 5).join(', '));
+      }
       // E2E_SHOTS=1이면 화면별 전체 캡처를 남긴다(레이아웃 점검용).
-      if (process.env.E2E_SHOTS && w !== 768) { fs.mkdirSync(path.join(OUT, 'shots'), { recursive: true }); await page.screenshot({ path: path.join(OUT, 'shots', `${label}-${w}.png`), fullPage: true }); }
+      if (process.env.E2E_SHOTS && w !== 768) {
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForTimeout(150); // sticky header settles after viewport / scroll changes
+        fs.mkdirSync(path.join(OUT, 'shots'), { recursive: true });
+        await page.screenshot({ path: path.join(OUT, 'shots', `${label}-${w}.png`), fullPage: true });
+      }
     }
     await page.setViewportSize({ width: 1440, height: 900 });
   };
@@ -206,9 +216,37 @@ async function main() {
   try {
     console.log('\n[1] 로그인·가입');
     await page.goto(base, { waitUntil: 'networkidle' });
+    await page.waitForURL(/#\/landing/);
+    await page.waitForSelector('#screen-landing:not([hidden])');
+    check(await page.locator('#guestWarning').isHidden(), '랜딩: 게스트 개인정보 경고 숨김');
+    check(await page.locator('.re-scene img').evaluate((img) => img.complete && img.naturalWidth === 1225), '랜딩: 제공 이미지 로드');
+    await overflow('랜딩');
+    await audit('랜딩');
+    check(await page.locator('.topbar-right').isHidden(), '랜딩: 앱 헤더 버튼 숨김');
+    await page.evaluate(() => document.fonts.ready);
+    check(await page.evaluate(() => document.fonts.check('700 40px SUIT')), '랜딩: SUIT 글꼴 로드');
+    await page.locator('.landing-header-start').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForURL(/#\/login/);
+    await page.waitForSelector('#screen-login:not([hidden])');
+    check(await page.locator('#loginForm').isVisible(), '랜딩: 무료로 시작하기는 로그인으로 이동');
+    check(await page.locator('.landing-header-start').isHidden(), '앱 화면: 랜딩 전용 버튼 숨김');
+    await page.goto(`${base}/#/landing`);
+    await page.waitForSelector('#screen-landing:not([hidden])');
+    await page.locator('.re-invitation [data-go="login"]').click();
+    await page.waitForSelector('#screen-login:not([hidden])');
+    check(true, '랜딩: 본문 시작 버튼도 로그인 진입');
+    await page.goto(`${base}/#/dashboard`);
     await page.waitForURL(/#\/dashboard/);
+    await page.waitForSelector('#screen-dashboard:not([hidden])');
+    check(await page.locator('#journeyUniversity').isVisible(), '게스트 연습 공간 진입');
+    check(await page.locator('.brand-logo').evaluate((img) => img.complete && img.naturalWidth === 250), '서비스 로고 SVG 로드');
+    const iconUrl = await page.locator('link[rel=icon]').getAttribute('href');
+    const icon = await page.request.get(`${base}${iconUrl}`);
+    check(icon.ok() && icon.headers()['content-type'].includes('image/svg+xml'), '브라우저 아이콘 SVG 제공');
+    await overflow('대시보드');
     check(await page.locator('#guestWarning').isVisible(), '첫 방문 자동 게스트: 개인정보 경고 표시');
-    check(await page.locator('#myDataBtn').isHidden() && await page.locator('#logoutBtn').isHidden(), '게스트: 내 데이터·로그아웃 숨김');
+    check(await page.locator('#myProfileBtn').isHidden() && await page.locator('#logoutBtn').isHidden(), '게스트: 내 정보·로그아웃 숨김');
     check((await page.locator('#guestWarning').innerText()).includes('유출될 수'), '개인정보·블라인드 누락 가능성 안내');
     check(!(await page.locator('#modeChip').innerText()).includes('Mock'), 'AI 켜짐·동의 전에는 Mock으로 표시하지 않음');
     await page.click('#guestAiBtn');
@@ -235,6 +273,8 @@ async function main() {
     await page.waitForSelector('#guestBox:not([hidden])');
     check(await page.locator('#guestBtn').isVisible(), 'Mock 모드: 가입 없이 체험하기 버튼');
     check(await page.locator('#screen-login').isVisible(), '로그인 화면 보임');
+    await audit('로그인');
+    await overflow('로그인');
     await page.click('#tabSignup');
     await page.fill('#signupForm [name=name]', '이투이');
     await page.fill('#signupForm [name=email]', `e2e-${Date.now()}@intervu.test`);
@@ -244,14 +284,22 @@ async function main() {
     await page.check('#signupForm [name=age_18_confirmed]');
     await page.check('#signupForm [name=notice_ack]');
     await page.click('#signupBtn');
+    await page.waitForURL(/#\/profile/);
+    await page.click('#obNext');
+    await page.fill('#obBirth', '2005');
+    await page.click('#obNext');
+    await page.fill('#obRecord', '수학 세특과 봉사 활동을 요약했습니다.');
+    await page.click('#obNext');
+    await page.fill('#obActivity', '동아리에서 기획을 맡았습니다.');
+    await page.click('#obFinish');
     await page.waitForURL(/#\/dashboard/);
     check(await page.locator('#userName').innerText() === '이투이님', '상단에 사용자 이름');
-    check(await page.locator('#myDataBtn').isVisible() && await page.locator('#logoutBtn').isVisible(), '회원: 내 데이터·로그아웃 표시');
+    check(await page.locator('#myProfileBtn').isVisible() && await page.locator('#logoutBtn').isVisible(), '회원: 내 정보·로그아웃 표시');
     await audit('로그인 후 대시보드');
 
     console.log('\n[2] 대시보드');
     const screens = await page.locator('[data-screen]').evaluateAll((els) => els.map((e) => e.dataset.screen));
-    check(screens.join(',') === 'login,dashboard,application,evidence,setup,room,feedback', '화면 7개(부가기능 없음)', screens.join(','));
+    check(screens.join(',') === 'login,profile,landing,dashboard,application,evidence,setup,room,feedback', '랜딩 + 앱 화면 8개(부가기능 없음)', screens.join(','));
     check(await page.locator('[data-journey]').count() === 1, '대입 여정 하나');
     check(!(await page.locator('text=자료 없이').count()), '자료 없이 일반 연습 없음');
     // AI 스위치(비밀번호 없음): 누르면 바로 바뀐다
@@ -265,6 +313,14 @@ async function main() {
     await page.click('#journeyUniversity');
 
     console.log('\n[3] 지원 정보');
+    await page.waitForURL(/#\/application/);
+    await page.waitForFunction(() => document.activeElement?.id === 'applicationTitle');
+    await page.locator('.brand').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForURL(/#\/dashboard/);
+    await page.waitForSelector('#screen-dashboard:not([hidden])');
+    check(await page.locator('#screen-dashboard').isVisible(), '키보드로 로고를 눌러 대시보드 이동');
+    await page.click('#journeyUniversity');
     await page.waitForURL(/#\/application/);
     await page.waitForFunction(() => document.querySelectorAll('#fixtureSelect option').length >= 11);
     check(await page.locator('#fixtureSelect option').count() === 11, '샘플 10건');
@@ -363,6 +419,8 @@ async function main() {
     check(await page.locator('#setupForm input[value=text]').isChecked(), '텍스트로 시작');
     check((await page.locator('#setupSummary').innerText()).includes('서류 검증'), '면접 준비에 선택한 면접관 관점 표시');
     check(await page.locator('#blindCheck #blindAck').count() === 1, '시작 전 블라인드 체크리스트');
+    await audit('면접 준비');
+    await overflow('면접 준비');
     await page.click('#startBtn');
     check((await page.locator('#setupError').innerText()).includes('체크'), '체크리스트 확인 전에는 시작 불가');
     await page.check('#blindAck');
@@ -485,6 +543,7 @@ async function main() {
     await page.setViewportSize({ width: 1440, height: 900 });
     const policy = await context.newPage();
     await policy.goto(`${base}/privacy.html`);
+    check(await policy.locator('.brand-logo').evaluate((img) => img.complete && img.naturalWidth === 250), '개인정보 페이지에도 동일 로고 로드');
     check((await policy.title()).includes('Reheaview') && (await policy.locator('main').innerText()).includes('Groq') && (await policy.locator('main').innerText()).includes('30일'), '개인정보 보호 정책 별도 페이지·공급자·보관 안내');
     await policy.setViewportSize({ width: 390, height: 900 });
     check(await policy.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '개인정보 정책 모바일 가로 넘침 없음');

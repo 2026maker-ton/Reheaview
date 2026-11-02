@@ -75,6 +75,8 @@ export function loadConfig(env = process.env) {
       'school.search': { provider: route('SCHOOL_SEARCH', 'gemini'), alias: 'gemini-search', maxOutputTokens: 1200 },
       // 보고서 한줄평(면접관 말투 2문장): Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 문구.
       'report.comment': { provider: route('REPORT_COMMENT', 'gemini'), alias: 'gemini-comment', maxOutputTokens: 400 },
+      // 질문별 점수·잘한 점·고치면 좋은 점. Gemini Flash Lite. 게이트가 닫히면 규칙 문장.
+      'answer.review': { provider: route('ANSWER_REVIEW', 'gemini'), alias: 'gemini-review', maxOutputTokens: 2000 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
       'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', String(env.TTS_PROVIDER || 'mock').toLowerCase()), alias: 'tts', maxOutputTokens: 0 },
     },
@@ -108,8 +110,8 @@ export function loadConfig(env = process.env) {
         liveAck: bool(env.GEMINI_LIVE_ACK) || paidAck || allowUnpaid,
         realDataAck: bool(env.GEMINI_REAL_DATA_ACK),
         legacyRealData: paidAck,
-        // 무료/미확인 등급이면 실데이터 차단 사유를 synthetic_only로 표기
-        syntheticOnly: !paidAck,
+        // 실데이터 허용이 없으면 샘플만 열리고, 사유는 synthetic_only로 남긴다.
+        syntheticOnly: !paidAck && !bool(env.GEMINI_REAL_DATA_ACK),
       },
       claude: {
         apiKey: env.CLAUDE_API_KEY || '',
@@ -118,7 +120,7 @@ export function loadConfig(env = process.env) {
         liveAck: bool(env.CLAUDE_LIVE_ACK),
         realDataAck: bool(env.CLAUDE_REAL_DATA_ACK),
         legacyRealData: false,
-        syntheticOnly: true,
+        syntheticOnly: !bool(env.CLAUDE_REAL_DATA_ACK),
       },
       groq: {
         apiKey: env.GROQ_WHISPER_KEY || env.GROQ_API_KEY || '',
@@ -127,7 +129,7 @@ export function loadConfig(env = process.env) {
         liveAck: bool(env.GROQ_LIVE_ACK),
         realDataAck: bool(env.GROQ_REAL_DATA_ACK),
         legacyRealData: false,
-        syntheticOnly: true,
+        syntheticOnly: !bool(env.GROQ_REAL_DATA_ACK),
       },
     },
     deepseek: {

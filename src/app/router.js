@@ -226,6 +226,8 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
       if ((mm = /^\/api\/v1\/trends\/([^/]+)\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.ops.publicTrend(mm[1], mm[2]));
       if (pth === '/api/v1/exports' && mth === 'POST') return send(h.account.createExport(owner, body));
       if ((mm = /^\/api\/v1\/exports\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.account.getExport(owner, id1()));
+      if (pth === '/api/v1/user/basics' && mth === 'GET') return send(h.userBasics.get(owner));
+      if (pth === '/api/v1/user/basics' && mth === 'PATCH') return send(await h.userBasics.patch(owner, body));
       if (pth === '/api/v1/account' && mth === 'DELETE') return send(h.account.deleteAccount(owner));
       if ((mm = /^\/api\/v1\/deletions\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.sessions.getDeletion(owner, id1()));
       return notFound();

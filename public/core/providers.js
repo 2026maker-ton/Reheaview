@@ -7,7 +7,7 @@ export const OP_LABEL = {
   'school.analyze':'학교 분석', 'trends.decide':'보조 자료 선택', 'questions.design':'질문 설계', 'dialogue.next': '꼬리질문', 'claims.extract': '주장 추출', 'evaluation.generate': '평가',
   'speech.transcribe': '음성 전사', 'speech.synthesize': '음성 합성', 'school.search': '학교 검색',
 };
-export const MODE_TEXT = { mock: 'DEMO / Mock · 외부 전송 없음', partial_live: '일부 실모델', live: '실모델' };
+export const MODE_TEXT = { mock: 'Mock · 외부 전송 없음', partial_live: 'AI 일부 사용', live: 'AI 사용 중' };
 
 export async function fetchProviderStatus() {
   try { state.providerStatus = await api('/providers/status' + (state.profile?.id ? '?profile_id='+encodeURIComponent(state.profile.id) : '')); } catch { state.providerStatus = null; }

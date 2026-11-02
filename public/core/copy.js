@@ -35,7 +35,7 @@ export function rubricNote(t) {
 export const FIXED = {
   evaluator: '규칙 기반 참고 관찰',
   evaluatorLlm: 'Gemini 분석 · 검증 전(참고용)',
-  mockMode: 'DEMO / Mock · 외부 전송 없음',
+  mockMode: 'Mock · 외부 전송 없음',
   abstain: '판단 보류',
   synthetic: '합성 샘플',
   unconfirmedNoGuess: '확인되지 않은 정보는 추측하지 않습니다',
@@ -48,7 +48,7 @@ export const FIXED = {
   cutoff: '네, 거기까지만 말해주시면 될 것 같습니다.',
   closing: '이것으로 면접을 마치겠습니다. 수고하셨습니다.',
   scoreLabel: '면접관 실시간 참고 점수 · 검증 전',
-  fitLabel: '역량 키워드 일치 기반 참고 지표 · 검증 전',
+  fitLabel: '질문과 연결된 역량의 답변 점수 · 검증 전',
   voiceLabel: '음성 참고 지표 · 기기 안에서 계산 · 검증 전',
   aiSearch: 'AI 검색 · 미검증',
 };
