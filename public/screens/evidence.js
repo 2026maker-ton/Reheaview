@@ -25,31 +25,17 @@ const refreshBtn = (id, label) => `<button class="${ctx.busy ? 'ghost small' : '
 const wrench = (id) => `<button class="icon-btn" type="button" id="${id}" aria-label="직접 수정" title="직접 수정">${WRENCH}</button>`;
 
 // 핵심 역량·인재상을 한 표로: 직접 입력한 항목이 먼저, 그 뒤 학교 자료에서 뽑은 인재상·역량(원문 인용 포함). 질문 계획의 '학업·전공 적합성' 단계가 이 표의 항목을 쓴다.
-// 검색 결과 평문("항목: 내용" 줄)을 표 행으로 바꾼다. 문장은 고치지 않는다(약관: 수정 없이 표시).
-const searchRows = (text) => String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const m = /^([^:：]{1,20})[:：]\s*(.*)$/.exec(l); return m ? { label: m[1].trim(), value: m[2].trim() || '확인 안 됨' } : { label: '', value: l }; });
-const talentParts = (v) => (/확인\s*안\s*됨/.test(v) ? [] : v.split(/[,，、·/]|\s{2,}/).map((s) => s.trim()).filter((s) => s.length >= 2 && s.length <= 20));
-function searchTable(inst) {
-  const h = ctx.lastSearch || inst?.search_history?.[0];
-  if (!h) return '';
-  const have = new Set((inst?.custom_competencies || []).map((c) => c.label));
-  const rows = searchRows(h.text).map((r) => {
-    const add = r.label === '인재상' ? talentParts(r.value).filter((t) => !have.has(t)).map((t) => `<button class="ghost small" type="button" data-add-comp="${esc(t)}">+ ${esc(t)}</button>`).join(' ') : '';
-    return `<tr><th scope="row">${esc(r.label || '검색')}</th><td>${esc(r.value)}${add ? `<div class="actions">${add}</div>` : ''}</td></tr>`;
-  }).join('');
-  return `<div class="search-rows"><p class="meta">${StateBadge(FIXED.aiSearch, 'warn')} 인터넷 검색 결과를 그대로 보여 드립니다. 면접 질문에는 아래 버튼으로 직접 추가한 항목만 쓰입니다.</p><table class="ev-table"><thead><tr><th scope="col">항목</th><th scope="col">검색 결과</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
 function competencies(inst) {
   const sa = inst?.school_analysis || {};
   const rows = [
     ...(inst?.custom_competencies || []).map((c) => ({ label: c.label, src: StateBadge('직접 입력', 'info'), quote: '' })),
     ...(sa.talent_traits || []).map((t) => ({ label: t.label, src: StateBadge('자료 원문', 'ok'), quote: t.quote !== t.label ? t.quote : '' })),
   ];
-  // 분석·검색이 도는 동안에는 "검색 중…", 끝났는데도 없으면 직접 등록을 권한다.
-  const found = searchTable(inst);
-  if (!rows.length && (ctx.busy || ctx.loading || ctx.searching)) return `<p class="fine" role="status">${ctx.busy ? '학교 자료 분석 중...' : ctx.searching ? '학교·전형을 검색하는 중...' : '불러오는 중...'}</p>${found}`;
-  if (!rows.length) return `<p class="fine">자료 원문에서 뽑은 항목이 없습니다. 아래 검색 결과를 참고해 추가하거나 <button class="ghost small" type="button" id="compAddBtn">직접 등록</button>해 주세요.</p>${found}`;
+  // 독립 자료 분석은 검색 결과와 구분한다.
+  if (!rows.length && (ctx.busy || ctx.loading)) return `<p class="fine" role="status">${ctx.busy ? '학교 자료 분석 중...' : '불러오는 중...'}</p>`;
+  if (!rows.length) return `<p class="fine">질문 근거로 확인된 역량은 아직 없습니다. 모집요강 원문을 입력하거나 <button class="ghost small" type="button" id="compAddBtn">직접 등록</button>할 수 있습니다. 학교·전형·인재상 정보는 위 Gemini 검색에서 확인하세요.</p>`;
   return `<table class="ev-table"><thead><tr><th scope="col">역량·인재상</th><th scope="col">출처</th><th scope="col">원문 근거</th></tr></thead><tbody>${rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td>${r.src}</td><td>${r.quote ? `<q>${esc(r.quote)}</q>` : '<span class="meta">—</span>'}</td></tr>`).join('')}</tbody></table>
-    <p class="fine">원문 근거는 직접 붙여 넣은 모집요강·자료의 글입니다. 인터넷 검색 결과는 별도의 미검증 참고 정보입니다.</p>${found}`;
+    <p class="fine">질문에 반영할 역량입니다. 원문 근거는 입력한 모집요강·자료에서 확인합니다. 위 Gemini 검색 결과는 이 목록으로 자동 변환하지 않습니다.</p>`;
 }
 
 function formatBody(inst) {
@@ -62,7 +48,7 @@ function weightsBody(inst) {
   const sa = inst?.school_analysis;
   const weights = sa?.evaluation_weights;
   if (ctx.busy || ctx.loading) return '<p class="fine" role="status">평가 비율 확인 중...</p>';
-  if (!weights?.items?.length) return `<p class="meta">${esc(weights?.reason || '해당 전형의 평가 비율은 아직 확인되지 않았습니다.')}</p><p class="fine">학교·학과·전형이 적힌 모집요강을 입력하거나 아래 학교·전형 검색에서 확인해 주세요.</p>`;
+  if (!weights?.items?.length) return `<p class="meta">${esc(weights?.reason || '입력한 자료에서 해당 전형의 평가 비율이 확인되지 않았습니다.')}</p><p class="fine">학교·학과·전형이 적힌 모집요강을 입력하거나 위 Gemini 검색에서 확인해 주세요.</p>`;
   const source = (id) => sa.sources?.find((s) => s.id === id);
   return `<p class="meta">${esc([weights.target.school, weights.target.department, weights.target.track].filter(Boolean).join(' · '))}</p>
     <div class="weight-grid">${weights.items.map((w) => { const s = source(w.source_id); return `<div class="weight-item"><p class="meta">${esc([w.year && `${w.year}학년도`, w.stage].filter(Boolean).join(' · ') || '단계·학년도 미명시')}</p><strong>${w.percent}<small>%</small></strong><p>${esc(w.label)}</p><details><summary>원문·출처</summary><q>${esc(w.quote)}</q><p class="fine">${esc(s?.status === 'official_verified' ? '수집한 공식 자료' : s?.status === 'demo_fixture' ? '데모 예시 · 공식 정보 아님' : '사용자 제공 자료 · 공식 확인 전')} · ${esc(s?.title || '')}${s?.url ? ` · <a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">출처 열기</a>` : ''}</p></details></div>`; }).join('')}</div><p class="fine">모집요강에 적힌 비율입니다. 연습 점수의 가중치로 사용하지 않습니다. 최신 공식 요강을 확인해 주세요.</p>`;
@@ -97,10 +83,11 @@ function searchBody(inst) {
   const fresh = ctx.lastSearch;
   const h = fresh || inst?.search_history?.[0];
   const btn = `<button class="ghost small" type="button" id="schoolSearchBtn"${ctx.searching ? ' disabled' : ''}>${ctx.searching ? '검색 중…' : h ? `${REFRESH} 다시 검색` : '학교·전형 검색'}</button>`;
-  if (!h) return `<div class="actions">${btn}</div><p class="fine" id="searchNote" role="status">${esc(ctx.searching ? '학교·전형을 검색하는 중입니다…' : ctx.searchNote || '')}</p>`;
+  if (!h) return `<p class="fine">대학·학과·전형을 기준으로 Gemini가 Google 검색에서 공식 모집요강·입학처·대학 홈페이지를 찾아 학교 정보, 전형, 면접, 평가 비율, 인재상·교육목표를 함께 조사합니다.</p><div class="actions">${btn}</div><p class="fine" id="searchNote" role="status">${esc(ctx.searching ? '학교·전형·인재상을 검색하는 중입니다…' : ctx.searchNote || '')}</p>`;
   const src = (fresh?.sources || []).map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title || s.url)}</a></li>`).join('');
-  return `<p class="fine">인터넷 검색(입학처 공개 자료 기준) 결과입니다. 검증 전 참고용이며 위 인재상·역량의 출처가 아닙니다. 확인하지 못한 항목은 "확인 안 됨"으로 표시됩니다.</p>
+  return `<p class="fine">Gemini Google 검색으로 찾은 학교·전형·인재상 정보입니다. 대학 공통 인재상과 해당 전형의 평가 기준은 다를 수 있습니다. 확인되지 않은 정보는 "확인 안 됨"으로 표시합니다.</p>
     <div class="actions">${btn}${StateBadge(FIXED.aiSearch, 'warn')}<span class="meta">${esc(fmtDate(h.searched_at))}${fresh ? '' : ' · 지난 기록'}</span></div>
+    <div class="school-search-result" role="region" aria-label="학교·전형·인재상 검색 결과">${esc(h.text)}</div>
     ${src ? `<ul class="plain source-list">${src}</ul>` : ''}
     ${fresh?.suggestions_html ? '<iframe class="search-suggestions" title="Google 검색 추천" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>' : ''}
     <p class="fine" id="searchNote" role="status">${esc(ctx.searchNote || '')}</p>`;
@@ -113,16 +100,16 @@ function paint() {
   const inst = detail.institution || null;
   $('#evStepper').innerHTML = Stepper(['지원 정보', '근거 확인', '면접 준비'], 1);
   $('#evidenceBody').innerHTML = `
+    ${section('search', '학교·전형·인재상 · Gemini 검색', `<p class="val">${esc([detail.school_name || detail.target_name, detail.department || detail.role, detail.track].filter(Boolean).join(' · '))}</p>${searchBody(inst)}`)}
     <div class="ev-grid">
-      ${section('comp', '핵심 역량·인재상', competencies(inst), `${refreshBtn('reanalyzeBtn', '다시 분석')}${wrench('editCompBtn')}`)}
+      ${section('comp', '면접 질문에 반영할 역량', competencies(inst), `${refreshBtn('reanalyzeBtn', '자료 원문 다시 분석')}${wrench('editCompBtn')}`)}
       ${section('format', '면접 형태', formatBody(inst), wrench('editFormatBtn'))}
     </div>
-    ${section('weights', '모집요강 평가 비율', weightsBody(inst))}
+    <details class="ev-sec"><summary>입력한 모집요강의 평가 비율</summary>${weightsBody(inst)}</details>
     <div class="ev-grid">
       ${section('persona', '면접관 관점', personaBody(), wrench('editPersonaBtn'))}
       ${section('privacy', '개인정보·블라인드 검사', `${privacyBody()}<p class="fine">${PrivacyLink('blind')}</p>`)}
     </div>
-    ${section('search', '학교·전형', `<p class="val">${esc([detail.school_name || detail.target_name, detail.department || detail.role, detail.track].filter(Boolean).join(' · '))}</p>${searchBody(inst)}`)}
     ${ctx.needsReapproval ? '<p class="missing" role="status">내용이 바뀌어 다시 승인해야 합니다.</p>' : ''}`;
   const frame = $('#evidenceBody .search-suggestions');
   if (frame) {
@@ -151,14 +138,9 @@ export async function renderEvidence(detail, created, { autoAnalyze = false } = 
   $('#evidenceState').className = 'state-badge warn';
   paint();
   const id = detail.id || created.id;
-  if (autoAnalyze && !detail.school_analysis) {
-    ctx.busy = true; paint();
-    try { await api(`/profiles/${id}/school-analysis`, { method: 'POST', idempotent: true, body: {} }); } catch (err) { if (err.status !== 409) setError('#evidenceError', err.message); }
-    ctx.busy = false;
-  }
   await refresh(id).catch((err) => setError('#evidenceError', err.message));
   ctx.loading = false; paint();
-  // 지원서 분석 직후 학교·전형 검색을 자동으로 한 번 한다(이미 검색한 기록이 있거나 서버가 꺼 두면 건너뜀). 결과는 읽기용이고 승인은 기다리지 않는다.
+  // 학교 정보의 기본 경로는 Gemini 검색이다. 자료 원문 추출은 사용자가 별도로 요청할 때만 한다.
   if (autoAnalyze && !detail.institution?.search_history?.length) await runSearch();
 }
 
@@ -194,7 +176,7 @@ async function reanalyze() {
   try { if (!(await ensureGuestAiConsent())) return; await api(`/profiles/${state.profile.id}/school-analysis`, { method: 'POST', idempotent: true, body: { refresh: true } }); await refresh(state.profile.id); } catch (err) { setError('#evidenceError', err.message); }
   finally { ctx.busy = false; paint(); }
 }
-async function runSearch(retry = false) {
+async function runSearch() {
   ctx.searching = true; paint();
   try {
     if (!(await ensureGuestAiConsent())) return;
@@ -202,9 +184,7 @@ async function runSearch(retry = false) {
     ctx.searching = false;
     if (r.status === 'ok') ctx.lastSearch = r.entry;
     await refresh(state.profile.id);
-    // 검색이 비어 돌아오면 한 번 더 조용히 시도한다. 실패 문구는 보이지 않고 '다시 검색' 버튼만 남긴다(막힘 사유는 안내).
-    if (r.status === 'failed' && !retry) { ctx.searching = false; return runSearch(true); }
-    ctx.searchNote = r.status === 'blocked' ? reasonCopy(r.reason) : ''; paint();
+    ctx.searchNote = r.status === 'blocked' ? reasonCopy(r.reason) : r.status === 'failed' ? '검색 결과를 확인하지 못했습니다. 공식 자료를 직접 확인하거나 다시 검색해 주세요.' : ''; paint();
   } catch (err) { setError('#evidenceError', err.message); }
   finally { ctx.searching = false; paint(); }
 }
@@ -216,11 +196,6 @@ $('#evidenceBody')?.addEventListener('click', (e) => {
   else if (e.target.closest('#editFormatBtn')) editFormat();
   else if (e.target.closest('#editPersonaBtn')) editPersona();
   else if (e.target.closest('#schoolSearchBtn') && !ctx.searching) runSearch();
-  else if (e.target.closest('[data-add-comp]')) {
-    const label = e.target.closest('[data-add-comp]').dataset.addComp;
-    const cur = (ctx.detail?.institution?.custom_competencies || []).map((c) => c.label);
-    if (!cur.includes(label)) saveCustom({ competencies: [...cur, label].slice(0, 8) });
-  }
 });
 
 $('#evidenceDraftBtn')?.addEventListener('click', () => { saveStep('evidence', { combo: comboId() }); toast('임시저장했습니다.'); });

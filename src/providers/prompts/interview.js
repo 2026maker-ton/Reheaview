@@ -2,7 +2,7 @@
 // 출력은 JSON 하나이며 서버가 검증한다(src/domain/interview-format.js, src/providers/validate.js).
 export const STAGES_PROMPT_VERSION = 'stages-design-v1';
 export const TURN_PROMPT_VERSION = 'turn-decide-v3-quote';
-export const SEARCH_PROMPT_VERSION = 'school-search-v3-admissions-only';
+export const SEARCH_PROMPT_VERSION = 'school-search-v4-school-traits';
 const OPEN = '<untrusted_data>';
 const CLOSE = '</untrusted_data>';
 const defang = (s, n) => String(s ?? '').slice(0, n).replace(/</g, '＜').replace(/>/g, '＞');
@@ -57,16 +57,20 @@ ${CLOSE}`;
 
 // 학교·전형 검색(Google Search grounding). 결과는 약관상 수정 없이 사용자에게 그대로 보여 줄 문장이므로 짧은 평문으로 받는다.
 export function buildSchoolSearchMessages({ school, department, track, year }) {
-  const system = `당신은 한국 대학 입시 자료 조사자입니다. 답하기 전에 반드시 Google 검색 도구로 이 대학 입학처의 해당 연도 모집요강을 먼저 검색합니다(검색하지 않고 기억만으로 답하지 않습니다). 근거는 해당 연도·대학·학과·전형의 입학처 공개 자료(공식 모집요강·입학처 공지)뿐입니다. 사설 입시 사이트·블로그·커뮤니티·뉴스·다른 연도·다른 학과·다른 전형의 자료는 근거로 쓰지 않습니다. 확인하지 못한 항목은 "확인 안 됨"이라고 씁니다. 추측하지 않고, 인재상 문장을 지어내지 않습니다.
+  const system = `당신은 한국 대학 입시 자료 조사자입니다. 학교 정보·전형·인재상을 모두 Google 검색 도구로 조사합니다. 기억이나 사용자가 붙여넣은 모집요강에만 의존하지 않습니다. 먼저 해당 대학 입학처의 해당 학년도·모집단위·전형의 공식 모집요강과 공지를 검색하고, 대학·학과 공식 홈페이지의 인재상·교육목표도 검색합니다. 전형·면접·평가 비율의 근거는 해당 학년도·대학·학과·전형의 공식 자료뿐입니다. 대학 공통 인재상과 학과 교육목표는 적용 범위를 명시하고, 이를 전형 평가항목으로 단정하지 않습니다. 사설 입시 사이트·블로그·커뮤니티·뉴스와 다른 연도·학과·전형 자료로 빈칸을 채우지 않습니다. 전형 이름이 없거나 모호하면 특정 전형을 임의로 고르지 않습니다. 확인하지 못한 항목은 "확인 안 됨"이라고 씁니다. 추측하지 않고 인재상·일정·수치·인용을 지어내지 않습니다. 검색한 공식 출처를 답변 근거로 인용하세요.
 ${UNTRUSTED}
-아래 7줄 형식의 한국어 평문으로만 답합니다(각 줄 160자 이내):
+아래 항목 순서의 한국어 평문으로만 답합니다(각 항목 160자 이내):
+학교·모집단위: (공식 명칭과 학과·모집단위 일치 여부)
+기준 학년도:
 전형 확인: (해당 연도에 이 이름의 전형이 있는지, 이름이 바뀌었는지)
 면접 유무:
 면접 방식: (서류 확인 / 제시문·전공 구술 / 녹화 / 블라인드 등, 시간·배점이 확인되면 포함)
 면접 분류: (일반·압박·블라인드·인성·기술·상황·면접 없음·확인 안 됨 중 하나)
 평가 요소:
 평가 비율: (해당 학년도·학과·전형의 단계별 서류/면접 반영 비율과 면접 영역별 비율. 공식 모집요강에 명시된 %만 쓰고, 미공개/다른 전형/학과 적용 불명확/전형 미입력은 확인 안 됨. 배수·배점으로 역산하거나 관행으로 추측하지 않는다.)
-인재상: `;
-  const user = `${OPEN}\n대학: ${defang(school, 60)}\n학과·모집단위: ${defang(department, 60)}\n전형: ${defang(track, 60) || '(미입력)'}\n기준 입시 연도: ${defang(year, 10)}\n${CLOSE}\n이 대학·전형의 면접 유무와 방식, 평가요소, 인재상을 검색해 위 형식으로 답하세요.`;
+인재상: (대학 공통인지 학과별인지 명시하고 공식 표현만 사용)
+학과 교육목표: (전형 평가기준과 구분)
+확인 필요: (미공개·전형 미입력·자료 불일치·학년도 불일치 항목)`;
+  const user = `${OPEN}\n대학: ${defang(school, 60)}\n학과·모집단위: ${defang(department, 60)}\n전형: ${defang(track, 60) || '(미입력)'}\n기준 입시 연도: ${defang(year, 10)}\n${CLOSE}\n이 대학·학과의 학교 정보, 전형, 면접, 평가요소·비율, 인재상·교육목표를 공식 웹 자료에서 검색해 위 형식으로 답하세요.`;
   return { system, user, version: SEARCH_PROMPT_VERSION };
 }

@@ -687,6 +687,7 @@ button.danger:hover { background: #fff5f5; }
 .workspace-tabs{display:flex;gap:8px;margin:0 0 20px;border-bottom:1px solid var(--line)}.workspace-tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:12px 16px;font:inherit;cursor:pointer;color:var(--ink-2);min-height:44px}.workspace-tabs button[aria-selected=true]{border-color:var(--navy);color:var(--navy);font-weight:700}[role=tabpanel]{min-width:0}#setupForm .notice{font-size:14px;padding:10px 14px}#setupForm .notice ul{margin-bottom:0}#setupForm .summary{padding:12px}#setupForm .field-group{margin-bottom:12px;padding:12px}
 
 .ev-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.school-search-result { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin: 16px 0; }
 .ev-table th, .ev-table td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .ev-table thead th { font-size: .8rem; color: var(--muted); background: var(--paper-2); }
 .ev-table tbody th { font-weight: 700; width: 28%; }

@@ -542,36 +542,36 @@ export function createProfileHandlers(d) {
     const planned = caller.plan('school.search', ctx);
     // 검색(grounding)은 유료 기능이라 GEMINI_GROUNDING_ACK=true가 명시된 때만 켠다. 무료 전용 모드(GEMINI_FREE_ONLY)는 다른 호출의 모델 제한이며 이 검색을 막지 않는다.
     const groundingOff = !config.gemini.groundingAck;
-    if (!planned.live || groundingOff) {
-      const reason = groundingOff ? 'grounding_ack_missing' : planned.reason;
+    if (!planned.live || groundingOff || planned.route.provider !== 'gemini') {
+      const reason = groundingOff ? 'grounding_ack_missing' : planned.route.provider !== 'gemini' ? 'not_configured' : planned.reason;
       return { status: 200, body: { profile_id: profileId, status: 'blocked', reason, provider_trace: [{ operation: 'school.search', provider: 'mock', mode: 'blocked', reason, model_alias: 'none', latency_ms: null }], history: liveHistory(row.profile) } };
     }
     const limited = checkRate(owner, 'search');
     if (limited) return limited;
     const year = String(Number(now().slice(0, 4)) + 1); // 수시 지원 학년도(다음 해)
-    const runOnce = () => caller.call('school.search', {
+    const res = await caller.call('school.search', {
       ctx, mockAlias: 'none', reserve: { key: `profile:${profileId}:search`, amount: config.profileRate.reserve },
-      invoke: (a) => a.searchSchool({ school: p.school_name || p.target_name, department: p.department || p.role, track: p.track, year }),
+      invoke: async (a) => {
+        try { return await a.searchSchool({ school: p.school_name || p.target_name, department: p.department || p.role, track: p.track, year }); }
+        catch (e) { e.retryable = false; throw e; } // 검색 1회당 호출 1회. 실패 재요청은 사용자 버튼으로만 한다.
+      },
       mock: () => null, fallback: () => null,
-      validate: (o) => typeof o?.text === 'string' && o.text.trim().length > 0,
+      validate: (o) => typeof o?.text === 'string' && o.text.trim().length > 0 && o.text.length <= 80000 && (!o.grounding?.searchEntryPoint?.renderedContent || (typeof o.grounding.searchEntryPoint.renderedContent === 'string' && o.grounding.searchEntryPoint.renderedContent.length <= 100000)),
     });
-    // 일시 실패(빈 응답·출처 없음)는 한 번만 더 시도한다(호출 상한 2회).
-    let res = await runOnce();
-    if (!res.live || !(res.value?.grounding?.groundingChunks || []).length) res = await runOnce();
     if (!res.live) return { status: 200, body: { profile_id: profileId, status: 'failed', reason: res.trace.reason, provider_trace: [res.trace], history: liveHistory(row.profile) } };
     const g = res.value.grounding || {};
     const sources = (g.groundingChunks || []).map((c) => c?.web).filter((w) => w && /^https?:\/\//.test(String(w.uri || ''))).slice(0, 8).map((w) => ({ url: String(w.uri).slice(0, 500), title: String(w.title || '').slice(0, 120) }));
     // 출처가 하나도 없으면 검색 근거가 없는 답이므로 채택하지 않는다.
     if (!sources.length) return { status: 200, body: { profile_id: profileId, status: 'failed', reason: 'no_grounding_sources', provider_trace: [res.trace], history: liveHistory(row.profile) } };
-    // Gemini API 추가 약관(Grounding, 2026-04-28 판, docs/decisions/2026-10-31-grounding-retention.md):
+    // Gemini API Grounding 약관(2026-11-04 재확인, docs/decisions/2026-11-04-school-search-primary.md):
     // - 결과는 수정 없이 프롬프트를 낸 사용자에게만, 추천 검색어(최대 5개)와 함께 보여 준다 → 텍스트를 그대로 돌려준다.
-    // - 저장은 '링크 제외 텍스트'만, 사용자가 자기 기록을 보는 목적으로 최대 6개월 → 출처 링크·추천 검색어 HTML은 저장하지 않는다.
+    // - 사용자 이력 텍스트 보관 예외는 최대 2년. 이 서비스는 더 짧은 150일 기본값을 유지하고 출처 메타데이터·추천 검색어 HTML은 저장하지 않는다.
     // - 다른 목적(질문 생성 근거·분석·캐시) 사용 금지 → 역량 후보로 자동 투입하지 않는다. 사용자가 읽고 렌치로 직접 입력한다.
     const t = now();
-    const text = res.value.text.normalize('NFC').trim().slice(0, 2000);
+    const text = res.value.text; // 결과 문장을 자르거나 정규화·재구성하지 않는다.
     const entry = { id: randomUUID(), query: { school: p.school_name || p.target_name, department: p.department || p.role, track: p.track || '', year }, text, searched_at: t, expires_at: new Date(Date.now() + config.gemini.searchRetentionDays * 864e5).toISOString() };
     store.setInstitution(profileId, { ...row.profile, search_history: [entry, ...liveHistory(row.profile)].slice(0, 5) }, row.status);
-    const display = { sources, suggestions_html: typeof g.searchEntryPoint?.renderedContent === 'string' ? g.searchEntryPoint.renderedContent.slice(0, 20000) : null };
+    const display = { sources, suggestions_html: typeof g.searchEntryPoint?.renderedContent === 'string' ? g.searchEntryPoint.renderedContent : null };
     return { status: 200, body: { profile_id: profileId, status: 'ok', entry: { ...entry, ...display }, provider_trace: [res.trace] } };
   }
 
