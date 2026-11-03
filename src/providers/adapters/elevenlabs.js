@@ -10,7 +10,7 @@ export function createElevenlabsAdapter({ apiKey, baseUrl, model, voiceId, timeo
     name: 'elevenlabs',
     model,
     prepare: prepareSdk,
-    async synthesize({ text }) {
+    async synthesize({ text, voiceId: selectedVoiceId = voiceId }) {
       const { ElevenLabsClient } = await prepareSdk();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -38,7 +38,7 @@ export function createElevenlabsAdapter({ apiKey, baseUrl, model, voiceId, timeo
       });
       let reader;
       try {
-        const stream = await client.textToSpeech.convert(voiceId, { text, modelId: model }, {
+        const stream = await client.textToSpeech.convert(selectedVoiceId, { text, modelId: model }, {
           maxRetries: 0, timeoutInSeconds: timeoutMs / 1000, abortSignal: controller.signal,
         });
         reader = stream.getReader();

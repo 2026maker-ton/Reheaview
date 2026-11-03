@@ -4,6 +4,10 @@
   "buildCommand": null,
   "installCommand": null,
   "outputDirectory": "public",
+  "env": {
+    "TTS_PROVIDER": "elevenlabs",
+    "ELEVENLABS_LIVE_ACK": "true"
+  },
   "functions": {
     "api/handler.js": {
       "maxDuration": 60,

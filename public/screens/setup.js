@@ -10,8 +10,31 @@ import { openMic } from '../core/vad.js';
 import { Stepper } from '../ui/index.js';
 import { toast } from '../core/toast.js';
 import { readStep, saveStep } from './draft.js';
+import { fetchTtsStatus, getTtsVoice, setTtsVoice } from '../core/tts.js';
 
 $('#setupStepper').innerHTML = Stepper(['지원 정보', '근거 확인', '면접 준비'], 2);
+
+async function refreshTtsPicker() {
+  const select = $('#ttsVoice');
+  const note = $('#ttsSetupStatus');
+  if (!select || !note) return;
+  const requestedProfile = state.profile?.id;
+  try {
+    const tts = await fetchTtsStatus();
+    if (state.profile?.id !== requestedProfile) return;
+    const wanted = state.ttsVoice || getTtsVoice();
+    select.replaceChildren(...tts.voices.map((v) => new Option(`${v.name} · ${v.description}`, v.key)), new Option('브라우저 기본 음성', 'browser'));
+    select.value = [...select.options].some((o) => o.value === wanted) ? wanted : 'default';
+    setTtsVoice(select.value);
+    note.textContent = select.value === 'browser' ? '브라우저 내장 음성으로 읽습니다. ElevenLabs로 보내지 않습니다.' : tts.message;
+  } catch {
+    note.textContent = '음성 연결 상태를 확인하지 못했습니다. 면접 시작 시 다시 확인합니다.';
+  }
+}
+$('#ttsVoice')?.addEventListener('change', (e) => {
+  setTtsVoice(e.target.value);
+  $('#ttsSetupStatus').textContent = e.target.value === 'browser' ? '브라우저 내장 음성으로 읽습니다. ElevenLabs로 보내지 않습니다.' : state.ttsStatus?.message || '선택한 음성을 면접 질문 낭독에 사용합니다.';
+});
 
 export function updateSetupSummary() {
   const el = $('#setupSummary');
@@ -53,6 +76,7 @@ export async function refreshSetup() {
   applyInputModes();
   restoreSetupDraft();
   await refreshModeChip();
+  await refreshTtsPicker();
 }
 window.addEventListener('hashchange', () => { if (location.hash === '#/setup') refreshSetup(); });
 $$('#setupForm input[name="input_mode"]').forEach((r) => r.addEventListener('change', () => { $('#micCheck').hidden = r.value !== 'groq' || !r.checked; }));

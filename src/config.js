@@ -1,5 +1,6 @@
 // 중앙 설정: 모델 레지스트리(Gemini 우선), 예산, 한도.
 // 사양: master-plan 최종결정표 + 2026-10-24 Gemini-first 결정(decisions/2026-10-24-gemini-first.md)
+import { TTS_DEFAULTS } from './domain/tts-voices.js';
 export function loadConfig(env = process.env) {
   const num = (k, d) => {
     const v = Number(env[k]);
@@ -97,11 +98,11 @@ export function loadConfig(env = process.env) {
         legacyRealData: false,
         syntheticOnly: !bool(env.DEEPSEEK_REAL_DATA_ACK),
       },
-      // ElevenLabs TTS(WP-B6): 모델·URL·음성 ID는 환경변수에서만 온다(기본값 없음). 합성 문장 전용(실데이터는 REAL_DATA_ACK+동의+만 19세).
+      // ElevenLabs TTS(WP-B6): 모델·URL·음성은 미지정 시 기본값. 실데이터에는 REAL_DATA_ACK·성인 확인·동의가 필요하다.
       elevenlabs: {
         apiKey: env.ELEVENLABS_API_KEY || '',
-        baseUrl: env.ELEVENLABS_BASE_URL || '',
-        model: env.ELEVENLABS_MODEL || '',
+        baseUrl: env.ELEVENLABS_BASE_URL === undefined ? TTS_DEFAULTS.baseUrl : env.ELEVENLABS_BASE_URL,
+        model: env.ELEVENLABS_MODEL === undefined ? TTS_DEFAULTS.model : env.ELEVENLABS_MODEL,
         liveAck: bool(env.ELEVENLABS_LIVE_ACK),
         realDataAck: bool(env.ELEVENLABS_REAL_DATA_ACK),
         legacyRealData: false,
@@ -143,7 +144,7 @@ export function loadConfig(env = process.env) {
       priceOut: num('DEEPSEEK_PRICE_OUT', 0),
     },
     elevenlabs: {
-      voiceId: env.ELEVENLABS_VOICE_ID || '',
+      voiceId: env.ELEVENLABS_VOICE_ID === undefined ? TTS_DEFAULTS.voiceId : env.ELEVENLABS_VOICE_ID,
       timeoutMs: num('ELEVENLABS_TIMEOUT_MS', 15000),
       charCap: num('ELEVENLABS_CHAR_CAP', 600), // 요청 1건당 합성 글자 상한(초과 시 외부 호출 없이 브라우저 TTS)
       maxAudioBytes: num('ELEVENLABS_MAX_AUDIO_BYTES', 2 * 1024 * 1024),

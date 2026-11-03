@@ -25,7 +25,10 @@ export function withCors(handler, env) {
     const res = await handler(request, e, ctx);
     const headers = new Headers(res.headers);
     headers.append('Vary', 'Origin');
-    if (ok) headers.set('Access-Control-Allow-Origin', origin);
+    if (ok) {
+      headers.set('Access-Control-Allow-Origin', origin);
+      headers.set('Access-Control-Expose-Headers', 'X-TTS-Reason, X-TTS-Fallback, X-TTS-Voice, X-Provider-Trace');
+    }
     return new Response(res.body, { status: res.status, headers });
   };
 }

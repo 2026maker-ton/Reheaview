@@ -259,6 +259,15 @@
     <form class="card form-card" id="setupForm" novalidate>
       <div class="summary" id="setupSummary" aria-live="polite"></div>
       <fieldset class="field-group">
+        <legend>면접관 목소리</legend>
+        <label for="ttsVoice">질문을 읽어 줄 음성</label>
+        <select id="ttsVoice" name="tts_voice" aria-describedby="ttsSetupStatus">
+          <option value="default">서버 기본 음성</option>
+          <option value="browser">브라우저 기본 음성</option>
+        </select>
+        <p class="fine" id="ttsSetupStatus" role="status">음성 연결 상태를 확인합니다.</p>
+      </fieldset>
+      <fieldset class="field-group">
         <legend>답변 방식<button class="info-btn" type="button" aria-expanded="false" aria-label="설명 보기" data-info-key="setup.mode">i</button></legend>
         <div class="segmented" role="radiogroup" aria-label="답변 방식">
           <label><input type="radio" name="input_mode" value="groq" /><span>음성</span></label>
