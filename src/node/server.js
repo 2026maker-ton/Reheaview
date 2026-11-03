@@ -35,7 +35,7 @@ function toRequest(req) {
 
 export function createApp(overrides = {}) {
   // overrides.env를 주면(테스트·E2E·리허설) 로컬 .env를 읽지 않는다: 개발자의 실키·라우팅 설정이 시험 결과를 바꾸지 않게 한다.
-  const env = overrides.env ? { ...process.env, ...overrides.env } : { ...loadDotEnv(root), ...process.env };
+  const env = overrides.env ? { ...process.env, ...overrides.env } : { ...loadDotEnv(root), ...loadDotEnv(root, '.env.local'), ...process.env };
   if (!overrides.env && !env.AI_REQUIRE_LIVE) env.AI_REQUIRE_LIVE = 'on';
   const config = loadConfig(env);
   // 트렌드 스토어: 영속 파일(TRENDS_FILE) 기반. 저장 실패 시 메모리로만 동작.
@@ -55,7 +55,7 @@ export function createApp(overrides = {}) {
   // 정적 페이지 CSP: connect-src는 'self' + API_BASE의 오리진(있을 때만)
   let apiOrigin = '';
   try { if (env.API_BASE) apiOrigin = new URL(env.API_BASE).origin; } catch { /* 잘못된 값은 무시 */ }
-  const csp = `default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; script-src 'self'; img-src 'self' data:; connect-src 'self'${apiOrigin ? ' ' + apiOrigin : ''}`;
+  const csp = `default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'${apiOrigin ? ' ' + apiOrigin : ''}`;
   const server = http.createServer(async (req, res) => {
     try {
       const p = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;

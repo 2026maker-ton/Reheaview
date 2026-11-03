@@ -2,8 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export function loadDotEnv(root = process.cwd()) {
-  const p = path.join(root, '.env');
+export function loadDotEnv(root = process.cwd(), filename = '.env') {
+  const p = path.join(root, filename);
   if (!fs.existsSync(p)) return {};
   const out = {};
   for (const raw of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {

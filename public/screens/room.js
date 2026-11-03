@@ -11,26 +11,18 @@ import { askConfirm } from '../core/dialog.js';
 import { loadReport, showReportProcessing, showReportFailure, cancelReportLoading } from './feedback.js';
 import { clearDraftAfterInterview } from './draft.js';
 import { openMic, createCapture, calibrate } from '../core/vad.js';
+import { speakInterviewer, stopSpeech } from '../core/tts.js';
 
 let room = null; // { voice, seconds, timer, endAt, parts, capture, busy, done }
 let mic = null;
 
-// ---- 면접관 음성(브라우저 합성) ----
-export function speak(text) {
-  return new Promise((resolve) => {
-    if (!text || !('speechSynthesis' in window)) return resolve();
-    try {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'ko-KR'; u.rate = 1;
-      const fallback = setTimeout(resolve, 1500 + [...text].length * 160); // onend가 오지 않는 브라우저 대비
-      u.onend = u.onerror = () => { clearTimeout(fallback); resolve(); };
-      speechSynthesis.speak(u);
-    } catch { resolve(); }
-  });
+// ---- 면접관 음성(서버 ElevenLabs → 브라우저 합성 폴백) ----
+export function speak(text, target = null) {
+  const fixed = ['opening', 'ack', 'cutoff', 'closing'].find((k) => FIXED[k] === text);
+  return speakInterviewer(text, target || (fixed ? `fixed_${fixed}` : null));
 }
 export function stopVoice() {
-  try { speechSynthesis.cancel(); } catch { /* noop */ }
+  stopSpeech();
   clearInterval(room?.timer);
   clearTimeout(room?.nudge);
   room?.capture?.stop();
@@ -63,7 +55,7 @@ function startClock() {
 }
 
 // ---- 한 질문 진행: 말하기 → 답변 받기 ----
-async function ask(text, line = '', stage = '') {
+async function ask(text, line = '', stage = '', target = 'last_utterance') {
   if (!room || room.done) return;
   const current = room;
   room.stage = stage;
@@ -71,7 +63,7 @@ async function ask(text, line = '', stage = '') {
   $('#textAnswer').hidden = true; $('#answerBtn').hidden = true; $('#listenBox').hidden = true;
   // 마이크는 질문을 읽기 전에 열고 소음 기준을 잡아 둔다: 질문이 끝나는 순간 지연 없이 바로 녹음·인식 상태로 들어가기 위해서다.
   if (room.voice) { try { mic ||= await openMic(); if (!mic.threshold) await calibrate(mic); } catch { /* beginAnswer가 텍스트로 전환한다 */ } }
-  await speak(line ? `${line} ${text}` : text);
+  await speak(line ? `${line} ${text}` : text, target);
   if (room !== current || room?.done) return;
   beginAnswer();
 }
@@ -197,7 +189,7 @@ async function submit(cutOff) {
     // 블라인드 사전 차단: 서버가 이 답변을 AI로 보내지 않았다. 안내를 보여 주고 같은 질문으로 다시 답하게 한다.
     if (r.action === 'blind_blocked') {
       state.session.state = 'active'; go('room');
-      try { speechSynthesis.cancel(); } catch { /* noop */ }
+      stopSpeech();
       $('#interviewerLine').textContent = '';
       await askConfirm('블라인드 안내', r.message, { okText: '다시 답하기' });
       return beginAnswer();
@@ -236,7 +228,7 @@ export function enterRoom({ session, started = null, resumeQuestion = null }) {
   showError('');
   go('room');
   if (started?.question) ask(started.question.text, started.opening || FIXED.opening, started.question.stage);
-  else if (resumeQuestion?.text) ask(resumeQuestion.text, '', resumeQuestion.stage);
+  else if (resumeQuestion?.text) ask(resumeQuestion.text, '', resumeQuestion.stage, 'current_question');
 }
 
 $('#answerBtn')?.addEventListener('click', () => {

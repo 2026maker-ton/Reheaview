@@ -1,12 +1,14 @@
 // 서버 TTS 프록시(WP-B6): POST /sessions/:id/tts {target}. 합성할 문장은 요청이 아니라 세션에서만 가져온다(임의 텍스트 불가).
 // 성공 → 오디오 바이트(저장 없음). 차단·실패·미설정 → 204 + X-TTS-Fallback: browser(본문 없음)로 브라우저 TTS 대체.
-const TARGETS = new Set(['current_question', 'last_utterance']);
+import { SPOKEN } from '../../domain/interview-format.js';
+const TARGETS = new Set(['current_question', 'last_utterance', ...Object.keys(SPOKEN).map((k) => `fixed_${k}`)]);
 
 export function createTtsHandlers(d) {
   const { config, store, err, caller, elevenlabs, requestContext, checkRate } = d;
   const fallback = (trace) => new Response(null, { status: 204, headers: { 'X-TTS-Fallback': 'browser', 'Cache-Control': 'no-store', ...(trace ? { 'X-Provider-Trace': JSON.stringify(trace) } : {}) } });
 
   function textOf(s, target) {
+    if (target.startsWith('fixed_')) return SPOKEN[target.slice(6)] || '';
     if (target === 'current_question') return s.questions?.[s.q_index]?.text || '';
     const evs = store.events.get(s.id) || [];
     for (let i = evs.length - 1; i >= 0; i--) {
@@ -18,7 +20,7 @@ export function createTtsHandlers(d) {
 
   async function synthesize(owner, id, body, requestId) {
     const target = body?.target;
-    if (!TARGETS.has(target)) return err('validation_error', 'target은 current_question 또는 last_utterance여야 합니다.', 422, { requestId });
+    if (!TARGETS.has(target)) return err('validation_error', '허용된 면접관 문장 target이 필요합니다.', 422, { requestId });
     const s = store.getSession(owner, id);
     if (!s || s.state === 'deleting' || s.state === 'deleted') return err('not_found', '세션을 찾을 수 없습니다.', 404);
     const text = textOf(s, target); // 요청 본문의 text 등 다른 필드는 읽지 않는다.
@@ -27,8 +29,13 @@ export function createTtsHandlers(d) {
     if (limited) return limited;
     if (!elevenlabs || [...text].length > config.elevenlabs.charCap) return fallback();
     const cap = config.elevenlabs.maxAudioBytes;
+    const ctx = requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true });
+    // 음성 게이트가 열린 경우에만 SDK를 로드해 다른 경로의 시작 비용을 늘리지 않는다.
+    if (caller.plan('speech.synthesize', ctx).live) {
+      try { await elevenlabs.prepare(); } catch { return fallback(); }
+    }
     const res = await caller.call('speech.synthesize', {
-      ctx: requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true }),
+      ctx,
       mockAlias: 'none',
       reserve: { key: `session:${s.id}`, amount: ([...text].length / 1000) * config.elevenlabs.pricePer1kChars },
       invoke: (a) => a.synthesize({ text }),

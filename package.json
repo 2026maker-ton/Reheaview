@@ -4,8 +4,8 @@
   "description": "Reheaview — 한국어 대입 AI 모의면접 MVP (Mock-first, provider-gated)",
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "start": "node --env-file=.env --env-file-if-exists=.env.local src/server.js",
+    "dev": "node --env-file=.env --env-file-if-exists=.env.local --watch src/server.js",
     "e2e": "node tools/run-e2e.mjs",
     "rehearsal": "node tools/rehearsal.mjs",
     "check:project": "node tools/check-project.mjs",
@@ -24,5 +24,8 @@
     "@pixelhize/goodui-cli": "^0.1.0",
     "@pixelhize/goodui-core": "^0.1.0",
     "eslint": "^10.14.0"
+  },
+  "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.75.0"
   }
 }
