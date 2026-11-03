@@ -6,7 +6,15 @@
   "outputDirectory": "public",
   "env": {
     "TTS_PROVIDER": "elevenlabs",
-    "ELEVENLABS_LIVE_ACK": "true"
+    "GEMINI_LIVE_ACK": "true",
+    "GEMINI_REAL_DATA_ACK": "true",
+    "GEMINI_GROUNDING_ACK": "true",
+    "CLAUDE_LIVE_ACK": "true",
+    "CLAUDE_REAL_DATA_ACK": "true",
+    "GROQ_LIVE_ACK": "true",
+    "GROQ_REAL_DATA_ACK": "true",
+    "ELEVENLABS_LIVE_ACK": "true",
+    "ELEVENLABS_REAL_DATA_ACK": "true"
   },
   "functions": {
     "api/handler.js": {

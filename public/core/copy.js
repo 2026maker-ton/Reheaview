@@ -78,7 +78,7 @@ export const REASON_COPY = {
   live_ack_missing: '외부 AI 사용 확인이 없어 Mock으로 동작합니다.',
   real_data_ack_missing: '실제 지원 자료의 외부 전송 확인이 없어 사용하지 않습니다.',
   consent_missing: '동의가 없어 외부 AI를 사용하지 않습니다.',
-  synthetic_only: '합성 샘플에만 외부 AI를 사용할 수 있습니다.',
+  synthetic_only: 'AI 서버의 입력 처리 설정을 확인해 주세요.',
   grounding_ack_missing: '검색 기능이 꺼져 있습니다. 모집요강을 붙여넣거나 직접 입력해 주세요.',
   no_grounding_sources: '검색 출처를 찾지 못해 결과를 쓰지 않았습니다.',
 };

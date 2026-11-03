@@ -22,7 +22,7 @@ export async function fetchTtsStatus() {
 const fallbackText = (reason) => ({
   not_configured: 'ElevenLabs 연결 설정이 완료되지 않아 브라우저 음성으로 읽습니다.',
   live_ack_missing: 'ElevenLabs 사용이 활성화되지 않아 브라우저 음성으로 읽습니다.',
-  synthetic_only: '실제 자료의 ElevenLabs 전송이 허용되지 않아 브라우저 음성으로 읽습니다.',
+  synthetic_only: 'ElevenLabs 서버 설정을 확인해 주세요. 브라우저 음성으로 읽습니다.',
   real_data_ack_missing: '실제 자료의 음성 처리 설정이 필요해 브라우저 음성으로 읽습니다.',
   consent_missing: '성인 확인·처리 동의가 필요해 브라우저 음성으로 읽습니다.',
   highschool_mock: '외부 음성 이용 동의를 확인해 주세요. 브라우저 음성으로 읽습니다.',

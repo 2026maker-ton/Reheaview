@@ -16,7 +16,7 @@ export function ttsMessage(reason) {
     disabled: '브라우저 음성이 기본으로 설정되어 있습니다.',
     not_configured: 'ElevenLabs 연결 설정이 완료되지 않아 브라우저 음성을 사용합니다.',
     live_ack_missing: 'ElevenLabs 사용이 아직 활성화되지 않아 브라우저 음성을 사용합니다.',
-    synthetic_only: '현재 예시 자료에서만 ElevenLabs 음성을 사용할 수 있습니다.',
+    synthetic_only: 'ElevenLabs 서버의 입력 처리 설정을 확인해 주세요.',
     real_data_ack_missing: '실제 자료의 음성 처리 설정이 필요합니다.',
     consent_missing: '성인 확인과 AI 처리 동의가 필요합니다.',
     highschool_mock: '이 연습에서는 외부 음성을 사용할 수 없습니다. 이용 동의를 확인해 주세요.',
