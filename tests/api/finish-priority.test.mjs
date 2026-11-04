@@ -92,6 +92,8 @@ test('failed final analysis retries explicitly, keeps strict gating and answers,
     const report = await ctx.g(`/api/v1/sessions/${s.id}/report`);
     assert.equal(report.data.retryable, true);
     assert.equal(report.data.failure.operation, 'evaluation.observe');
+    assert.deepEqual(report.data.failure.configuration, { provider: 'claude', missing: ['apiKey', 'baseUrl', 'model'] });
+    assert.match(report.data.detail, /Claude 서버 설정 누락\(API 키·요청 주소·모델\)/);
     const completedAt = store.getSession('user-a', s.id).completed_at;
     await command();
     assert.equal(store.evaluations.get(s.id), originalFailure, 'plain finish remains idempotent');

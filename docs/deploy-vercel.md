@@ -27,6 +27,12 @@
    화면 상단 AI 스위치는 비밀번호가 없고 상태는 Redis(`flag:ai_off`)에 저장되어 모든 사용자에게 적용된다. 글꼴(Pretendard·고운바탕)은 jsDelivr·Google Fonts에서 불러오므로 CSP(`vercel.json`)에 두 도메인이 허용돼 있다.
 4. 배포 후 확인: 가입 → 샘플로 면접 한 바퀴 → 새로고침해도 로그인 유지 → 계정 삭제.
 
+## 최종 분석의 Claude 설정 누락
+
+`failure.operation=evaluation.observe`, `failure.reason=not_configured`는 외부 요청 전 Claude 키·주소·모델 중 하나가 없다는 뜻이다. API의 결제/인증 실패·타임아웃과 구분한다. `vercel.json`에는 현재 로컬 구성과 같은 비밀이 아닌 `CLAUDE_BASE_URL`, `CLAUDE_MODEL`, `CLAUDE_WRITER_MODEL`, `CLAUDE_API_VERSION`을 명시했다. 모델 변경이나 다른 공급자로 자동 전환하지 않는다.
+
+`CLAUDE_API_KEY`는 Vercel의 **해당 배포 환경(Production 또는 Preview)의 서버 Secret**으로 직접 등록해야 한다. 키 값은 저장소·오류 화면에 넣지 않는다. 키를 추가해도 이미 만들어진 배포에 소급 적용되지 않으므로 새로 배포한 다음 실패 보고서의 다시 시도를 사용한다. 새 실패 응답의 `failure.configuration`에는 공급자와 누락된 필드 이름만 담긴다. 주소·모델·키의 실제 값은 담기지 않는다.
+
 ## 입장 비밀번호
 - 2026-11-03에 제거했습니다. `SITE_PASSWORD`·`GATE_SECRET` 없이 배포가 열리며, 접근 제어는 회원 가입·로그인(연령·동의 확인)뿐입니다. 공개 전에 Anthropic·Google 콘솔 월 지출 한도를 확인하세요.
 

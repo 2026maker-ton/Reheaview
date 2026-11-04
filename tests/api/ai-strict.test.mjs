@@ -3,9 +3,43 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withProviders, FAKE_KEY, STUB_BASE } from '../helpers/provider-stub.mjs';
 import { createCaller, aiUnavailable } from '../../src/providers/call.js';
+import { readFileSync } from 'node:fs';
+import { loadConfig } from '../../src/config.js';
+import { createRegistry } from '../../src/providers/registry.js';
 
 const sw = (ctx, on) => fetch(`${ctx.base}/api/v1/ai-switch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on }) });
 const body = { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량을 봅니다.', application_text: '저는 동아리 앱 개발 프로젝트에서 팀장을 맡아 일정을 조율했습니다.' };
+
+test('deployed Claude non-secret configuration opens observation only with a server secret; missing fields are named without values', async () => {
+  const deploy = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
+  assert.ok(!Object.hasOwn(deploy.env, 'CLAUDE_API_KEY'), 'secret must never be committed');
+  let calls = 0;
+  const invoke = async () => { calls++; return { observations: [] }; };
+  const make = (overrides) => {
+    const c = loadConfig({ ...deploy.env, CLAUDE_API_KEY: 'fake-server-secret', ...overrides });
+    return createCaller({ registry: createRegistry(c), gates: c.providerGate, strict: () => true, adapters: { claude: {} }, ledger: {} });
+  };
+  const live = await make({}).call('evaluation.observe', { ctx: { consent: true, adult: true }, invoke });
+  assert.equal(live.live, true);
+  assert.equal(live.trace.provider, 'claude');
+  assert.equal(calls, 1);
+  for (const [envKey, missing] of [['CLAUDE_API_KEY', 'apiKey'], ['CLAUDE_BASE_URL', 'baseUrl'], ['CLAUDE_MODEL', 'model']]) {
+    await assert.rejects(() => make({ [envKey]: '' }).call('evaluation.observe', { ctx: { consent: true, adult: true }, invoke }), (e) => {
+      assert.equal(e.reason, 'not_configured');
+      assert.deepEqual(e.configuration, { provider: 'claude', missing: [missing] });
+      assert.ok(!JSON.stringify(e).includes('fake-server-secret'));
+      assert.ok(!JSON.stringify(e).includes(deploy.env.CLAUDE_MODEL));
+      assert.ok(!JSON.stringify(e).includes(deploy.env.CLAUDE_BASE_URL));
+      return true;
+    });
+  }
+  assert.equal(calls, 1, 'no invocation with incomplete configuration');
+  for (const ctx of [{ consent: false, adult: true }, { consent: true, adult: false }]) {
+    await assert.rejects(() => make({}).call('evaluation.observe', { ctx, invoke }), (e) => e.reason === 'consent_missing');
+  }
+  await assert.rejects(() => make({ CLAUDE_REAL_DATA_ACK: 'false' }).call('evaluation.observe', { ctx: { consent: true, adult: true }, invoke }), (e) => e.reason === 'synthetic_only');
+  assert.equal(calls, 1, 'deployment config cannot bypass consent/age/real-data gates');
+});
 
 test('strict caller: mock route and gate-blocked calls throw ai_unavailable; speech is exempt; non-strict keeps mock', async () => {
   const registry = { route: (op) => ({ provider: 'mock', alias: 'm', operation: op }) };

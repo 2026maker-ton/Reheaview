@@ -25,3 +25,11 @@ Mock/스텁 API 회귀 및 브라우저 회귀로 검증한다. 최종 실행 �
 변경 파일: `src/app/handlers/{commands,sessions}.js`(재분석·실패 진단), `src/providers/call.js`(안전한 실패 단계), `src/vercel/handler.js`·`vercel.json`(수명·잠금), `public/screens/{feedback,room}.js`·`public/core/tts.js`(재시도·낭독 순서·대체 사유), `tests/api/{finish-priority,vercel-store}.test.mjs`, `tools/e2e-{ui,room-cases}.mjs`, `PROJECT.md`, `docs/deploy-vercel.md`, 본 결정 기록.
 
 브라우저 검사에는 최근 UI 변경으로 없어진 modeChip·온보딩 활동 단계·ev-weights ID, 새 임시저장 버튼을 반영했다. 가속 Mock 면접을 여러 회차 실행할 때만 TTS 분당 한도를 테스트 환경에서 높이고, 가상 시계와 네트워크 응답을 동기화한다. 제품 속도 제한은 유지하며 별도 API 회귀가 검증한다.
+
+## 후속: 관찰 단계 설정 누락
+
+사용자가 보낸 운영 응답에서 `evaluation.observe/not_configured`를 확인했다. 이 응답은 Claude 호출 전 키·BASE_URL·MODEL 중 누락이 있음을 증명하며 어느 필드인지는 기존 응답으로 구분할 수 없었다. 앞서 수정한 요청 수명과 별개의 문제다. 로컬의 기존 설정은 Claude 키 존재, `https://api.anthropic.com/v1`, 모델/작성 모델 `claude-haiku-5-5`, API 버전 `2023-06-01`이었다(키 값 미출력). Vercel 설정에는 활성화 ACK만 있고 이 비밀이 아닌 값들이 없었다. 동일 값을 배포 설정에 명시하고 Secret은 포함하지 않는다. Production Secret 존재 여부는 Vercel API 접근 오류(프로젝트/팀 확인 후에도 404)로 미확인이다.
+
+원인이 남으면 추측하지 않도록 `failure.configuration={provider,missing}`에 누락 필드 이름만 전달한다. 실제 값은 전달하지 않는다. API 키는 해당 배포 환경에 등록하고 재배포해야 하며, 코드만으로 키 누락을 복구했다고 주장하지 않는다. strict 모드·REAL_DATA_ACK·성인·동의·비용 조건은 유지하고 다른 모델·공급자로 승격하지 않는다. 가짜 서버 키와 스텁 invoke로 배포 구성→Claude 관찰 라우트, 누락 시 호출 0회, 진단 값 비노출 및 동의·연령 차단을 시험한다.
+
+후속 검증: `check:project` 4/4, `npm test` 390 통과/0 실패, 브라우저 E2E 198 통과/0 실패. 실제 AI 요청 0회. 변경 파일은 `vercel.json`, `src/providers/{gate,call}.js`, `src/app/handlers/commands.js`, `tests/api/{ai-strict,finish-priority}.test.mjs`, `PROJECT.md`, `docs/deploy-vercel.md`, 본 기록이다. 기존 문서의 과거 검증 수치는 유지하며 운영 Secret·실배포·실모델 완료를 뜻하지 않는다.

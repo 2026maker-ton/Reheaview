@@ -704,10 +704,14 @@ export function createCommandHandlers(d) {
       // 원문·공급자 오류 본문·키 대신 서버가 만든 단계와 사유만 공개한다.
       const operation = e?.code === 'ai_unavailable' ? e.operation : null;
       const reason = e?.code === 'ai_unavailable' ? e.reason : null;
+      const configuration = e?.code === 'ai_unavailable' ? e.configuration : null;
       const stage = ({ 'evaluation.observe': '답변 근거 관찰', 'evaluation.generate': '답변 분석', 'answer.review': '질문별 답변 검토', 'report.comment': '종합 코멘트 작성' })[operation];
-      const failureNote = ({ timeout: '응답 시간 초과', rate_limited: '공급자 요청 한도 초과', budget_cap: '분석 예산 한도 도달', invalid_output: '응답 검증 실패', consent_missing: '처리 동의 확인 필요', provider_error: '공급자 응답 오류' })[reason] || 'AI 이용 설정 확인 필요';
+      const missingLabels = (configuration?.missing || []).map((key) => ({ apiKey: 'API 키', baseUrl: '요청 주소', model: '모델' })[key]).filter(Boolean);
+      const failureNote = reason === 'not_configured' && missingLabels.length
+        ? `${configuration.provider === 'claude' ? 'Claude' : 'AI'} 서버 설정 누락(${missingLabels.join('·')}) — 운영자 설정 후 다시 시도할 수 있습니다`
+        : ({ timeout: '응답 시간 초과', rate_limited: '공급자 요청 한도 초과', budget_cap: '분석 예산 한도 도달', invalid_output: '응답 검증 실패', consent_missing: '처리 동의 확인 필요', provider_error: '공급자 응답 오류' })[reason] || 'AI 이용 설정 확인 필요';
       report = { status: 'failed', error_code: 'evaluation_failed', generated_at: now(), retryable: true,
-        failure: { operation, reason }, provider_trace: [...(s.provider_trace || [])],
+        failure: { operation, reason, ...(configuration ? { configuration } : {}) }, provider_trace: [...(s.provider_trace || [])],
         detail: `평가를 생성하지 못했습니다.${stage ? ` ${stage}: ${failureNote}.` : ''} 확정된 답변은 보존됩니다. 분석을 다시 시도해 주세요.` };
       store.evaluations.set(s.id, report);
     }
