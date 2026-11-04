@@ -18,6 +18,8 @@ export async function verifyRoomCompletion(page, check) {
     return route.fulfill({ json: { status: 'ready', session_id: 'voice-check', evaluator: { kind: 'rule_based' }, transcript: [] } });
   });
   await page.evaluate(async () => {
+    // 가상 시계에서 네트워크 응답 후 생긴 낭독 타이머가 다음 질문을 막지 않게 한다.
+    if (window.speechSynthesis) window.speechSynthesis.speak = (u) => Promise.resolve().then(() => u.onend?.());
     window.__voiceMode = 'silence';
     class Recorder {
       static isTypeSupported() { return true; }
@@ -57,7 +59,18 @@ export async function verifyRoomCompletion(page, check) {
   await page.waitForFunction(() => document.querySelector('#roomTitle')?.textContent.includes('자동 진행 질문 2'), null, { timeout: 5000 });
   check(submissions === 1 && transcriptions === 1, '음성: 배경 소음을 제외한 정적 3초 후 전사·제출 1회');
   await page.evaluate(() => { window.__voiceMode = 'silence'; });
-  for (let i = 0; i < 4; i++) await page.clock.runFor(32_000);
+  for (let i = 0; i < 4; i++) {
+    await page.clock.runFor(32_000);
+    // 네트워크는 실제 Node 루프, 녹음/낭독은 가상 시계다. 외부 응답이 돌아온 뒤
+    // 시작된 타이머까지 진행시키며 유한 횟수로 기다린다(멈춘 RAF 폴링 금지).
+    for (let spin = 0; spin < 70 && submissions < i + 2; spin++) {
+      await new Promise((r) => setTimeout(r, 10));
+      await page.clock.runFor(1000);
+    }
+    if (submissions < i + 2) throw new Error(`자동 진행 질문 ${i + 2} 제출 지연`);
+    await new Promise((r) => setTimeout(r, 20));
+    await page.clock.runFor(1000);
+  }
   await page.waitForURL(/#\/feedback/);
   check(submissions === 5, '마지막 질문도 자동 제출 후 결과 화면 도착');
   check(transcriptions === 1, '무발화 답변은 외부 전사 없이 자동 진행');

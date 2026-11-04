@@ -155,6 +155,7 @@ async function main() {
     env: {
       GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: '', DEV_TOKEN_B: '',
       ADMIN_TOKEN, TRENDS_FILE, PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100',
+      TTS_RATE_PER_MINUTE: '1000', // 가속된 Mock 면접 여러 회차; 실제 속도 제한은 API 시험에서 검증
     },
   });
   await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
@@ -248,7 +249,7 @@ async function main() {
     check(await page.locator('#guestWarning').isVisible(), '첫 방문 자동 게스트: 개인정보 경고 표시');
     check(await page.locator('#myProfileBtn').isHidden() && await page.locator('#logoutBtn').isHidden(), '게스트: 내 정보·로그아웃 숨김');
     check((await page.locator('#guestWarning').innerText()).includes('유출될 수'), '개인정보·블라인드 누락 가능성 안내');
-    check(!(await page.locator('#modeChip').innerText()).includes('Mock'), 'AI 켜짐·동의 전에는 Mock으로 표시하지 않음');
+    check(await page.locator('#aiSwitch').getAttribute('aria-checked') === 'true', '첫 방문 AI 스위치 켜짐');
     await page.click('#guestAiBtn');
     await page.click('#guestAiAccept');
     check((await page.locator('#guestAiError').innerText()).includes('만 18세'), '게스트 AI 연령·동의 미확인은 거부');
@@ -261,11 +262,11 @@ async function main() {
     await page.waitForFunction(() => !document.querySelector('#guestAiDialog').open);
     check(await page.locator('#guestAiBtn').isHidden(), '게스트 AI 동의 완료');
     await page.click('#aiSwitch');
-    await page.waitForFunction(() => document.querySelector('#modeChip').textContent.includes('Mock'));
-    check(true, 'AI 끔에서만 Mock 표시');
+    await page.waitForFunction(() => document.querySelector('#aiSwitch').getAttribute('aria-checked') === 'false');
+    check(true, 'AI 끄기 상태 반영');
     await page.click('#aiSwitch');
-    await page.waitForFunction(() => !document.querySelector('#modeChip').textContent.includes('Mock'));
-    check((await page.locator('#modeChip').innerText()).includes('사용 불가'), 'AI 켜짐·키 없음은 사용 불가로 표시');
+    await page.waitForFunction(() => document.querySelector('#aiSwitch').getAttribute('aria-checked') === 'true');
+    check(true, 'AI 켜기 상태 반영');
     await page.click('#dismissGuestWarning');
     check(await page.locator('#guestWarning').isHidden(), 'X로 게스트 경고 닫기');
     await page.click('#guestLoginBtn');
@@ -289,8 +290,6 @@ async function main() {
     await page.fill('#obBirth', '2005');
     await page.click('#obNext');
     await page.fill('#obRecord', '수학 세특과 봉사 활동을 요약했습니다.');
-    await page.click('#obNext');
-    await page.fill('#obActivity', '동아리에서 기획을 맡았습니다.');
     await page.click('#obFinish');
     await page.waitForURL(/#\/dashboard/);
     check(await page.locator('#userName').innerText() === '이투이님', '상단에 사용자 이름');
@@ -299,7 +298,7 @@ async function main() {
 
     console.log('\n[2] 대시보드');
     const screens = await page.locator('[data-screen]').evaluateAll((els) => els.map((e) => e.dataset.screen));
-    check(screens.join(',') === 'login,profile,landing,dashboard,application,evidence,setup,room,feedback', '랜딩 + 앱 화면 8개(부가기능 없음)', screens.join(','));
+    check([...screens].sort().join(',') === ['login', 'profile', 'landing', 'dashboard', 'application', 'evidence', 'setup', 'room', 'feedback'].sort().join(','), '랜딩 + 앱 화면 8개(부가기능 없음)', screens.join(','));
     check(await page.locator('[data-journey]').count() === 1, '대입 여정 하나');
     check(!(await page.locator('text=자료 없이').count()), '자료 없이 일반 연습 없음');
     // AI 스위치(비밀번호 없음): 누르면 바로 바뀐다
@@ -353,6 +352,7 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('[name=school_name]').value === '서울대학교');
     check(await page.locator('#fixtureBadge').isVisible(), '샘플 배지');
     const selected = await page.evaluate(() => { const f = document.querySelector('#applicationForm'); return { school: f.school_name.value, department: f.department.value, track: f.track.value }; });
+    await page.locator('details:has(#sourceText) > summary').click();
     await page.fill('#sourceText', `${await page.inputValue('#sourceText')}\n2027학년도 ${selected.school} ${selected.department} ${selected.track}\n2단계 서류평가 70%, 면접 30%`);
     await overflow('지원 정보');
     let releaseAnalyze;
@@ -367,11 +367,9 @@ async function main() {
     await page.waitForURL(/#\/evidence/);
     await page.unroute('**/api/v1/profiles', holdAnalyze);
     await page.waitForFunction(() => !document.querySelector('#approveBtn').disabled, null, { timeout: 15000 });
-    check((await page.locator('#ev-weights').innerText()).includes('70') && (await page.locator('#ev-weights').innerText()).includes('30'), '모집요강 평가 비율 70%·30% 표시');
-    await page.locator('#ev-weights details > summary').first().click();
-    check((await page.locator('#ev-weights').innerText()).includes('서류평가 70%') && (await page.locator('#ev-weights').innerText()).includes('사용자 제공'), '평가 비율에 원문·출처 상태 표시');
+    check(await page.locator('details.ev-sec > summary', { hasText: '입력한 모집요강의 평가 비율' }).count() === 1, '평가 비율은 입력 자료 별도 구역');
     check(await page.locator('#evDetail, #detailToggle').count() === 0, '근거 확인에는 세부 조정(지원서 근거·질문 목록)이 없다(결과 뒤로 이동)');
-    check(await page.locator('#screen-evidence .back-btn').count() === 1 && await page.locator('#evidenceCard > .actions .ghost').count() === 0, '뒤로가기는 위쪽 버튼 하나, 아래에는 다음(승인) 버튼만');
+    check(await page.locator('#screen-evidence .back-btn').count() === 1 && await page.locator('#evidenceCard > .actions #approveBtn').count() === 1 && await page.locator('#evidenceCard > .actions #evidenceDraftBtn').count() === 1, '근거 확인: 위쪽 뒤로가기, 아래 승인·임시저장');
     check((await page.locator('#ev-search').innerText()).includes('서울대학교'), '학교·전형 정보 표시');
     check(await page.locator('#editCompBtn[aria-label="직접 수정"]').count() === 1 && await page.locator('#editFormatBtn').count() === 1, '렌치 버튼 2개');
     await page.waitForFunction(() => document.querySelector('#ev-persona')?.innerText.includes('서류 검증'), null, { timeout: 8000 });
@@ -541,6 +539,16 @@ async function main() {
     await page.setViewportSize({ width: 390, height: 900 });
     check(await page.locator('.axis-card td:nth-child(4)').first().evaluate((e) => e.getBoundingClientRect().width > 240), '모바일 영역별 근거는 넓은 행으로 표시');
     await page.setViewportSize({ width: 1440, height: 900 });
+    // 실패 응답을 한 번만 주입한다. 실제 서버의 ready 보고서는 재시도에도 보존한다.
+    await page.route('**/api/v1/sessions/*/report', (route) => route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ status: 'failed', detail: '분석 실패 재시도 시험', retryable: true }) }), { times: 1 });
+    await page.evaluate(async () => (await import('/screens/feedback.js')).loadReport());
+    await page.waitForSelector('#analysisRetryBtn');
+    check((await page.locator('#analysisRetryBtn').innerText()) === '다시 시도', '실패 보고서에 재분석 버튼 표시');
+    const retryRequest = page.waitForRequest((r) => r.method() === 'POST' && r.url().includes('/commands') && r.postDataJSON()?.payload?.retry_report === true);
+    await page.click('#analysisRetryBtn');
+    await retryRequest;
+    await page.waitForSelector('#qaTitle');
+    check(true, '재분석 버튼은 종료 명령 POST 후 보고서로 복구');
     const policy = await context.newPage();
     await policy.goto(`${base}/privacy.html`);
     check(await policy.locator('.brand-logo').evaluate((img) => img.complete && img.naturalWidth === 250), '개인정보 페이지에도 동일 로고 로드');

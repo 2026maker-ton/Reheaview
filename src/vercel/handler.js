@@ -14,7 +14,9 @@ import { loadConfig } from '../config.js';
 import { sha256Hex, randomUUID } from '../app/crypto.js';
 
 const SKIP_MAPS = new Set(['users', 'authSessions']);
-const LOCK_MS = 30_000;
+// 최종 분석은 여러 외부 호출을 순차 실행한다. 배포 함수의 최대 300초와
+// 저장 여유를 포함해야 중간 GET/TTS가 오래된 스냅샷을 다시 저장하지 않는다.
+export const LOCK_MS = 330_000;
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 const apiErr = (status, code, message, retryable = false) => json(status, { error: { code, message, retryable, details: null } });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

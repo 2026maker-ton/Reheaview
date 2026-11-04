@@ -1,7 +1,8 @@
 // Vercel + Upstash Redis 저장 방식: 요청마다 새 코어, 사용자 데이터는 Redis에서 불러오고 저장. 가짜 Redis(메모리)로 시험한다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createVercelHandler } from '../../src/vercel/handler.js';
+import { createVercelHandler, LOCK_MS } from '../../src/vercel/handler.js';
+import { readFileSync } from 'node:fs';
 import { createRedis } from '../../src/vercel/redis.js';
 import { getFixture } from '../../src/domain/fixtures.js';
 
@@ -47,6 +48,12 @@ function setup() {
   return { up, call };
 }
 const SIGNUP = { email: 'V@Example.test', name: '브이', password: 'vercel-pass-1', age_18_confirmed: true, notice_ack: true };
+
+test('owner lease covers the entire configured function lifetime and persistence margin', () => {
+  const deploy = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
+  assert.equal(deploy.functions['api/handler.js'].maxDuration, 300);
+  assert.ok(LOCK_MS >= deploy.functions['api/handler.js'].maxDuration * 1000 + 30000);
+});
 
 test('cold starts: signup -> me -> login -> logout survive across stateless requests; tokens/passwords are stored hashed', async () => {
   const { up, call } = setup();

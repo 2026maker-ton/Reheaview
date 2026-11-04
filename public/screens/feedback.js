@@ -28,6 +28,17 @@ export function showReportFailure(message, retry = loadReport) {
   $('#feedbackBody').innerHTML = `<section class="card processing-card"><h2>분석을 완료하지 못했습니다.</h2><p role="alert">${esc(message)}</p><button class="primary" id="analysisRetryBtn" type="button">${retry === loadReport ? '다시 확인' : '다시 시도'}</button></section>`;
   $('#analysisRetryBtn').addEventListener('click', retry);
 }
+async function retryReport() {
+  const sessionId = state.session.id;
+  showReportProcessing();
+  try {
+    const r = await api(`/sessions/${sessionId}/commands`, { method: 'POST', idempotent: true,
+      body: { command_id: uuid(), type: 'session.finish', payload: { retry_report: true } } });
+    if (state.session?.id !== sessionId) return;
+    state.session = { ...state.session, version: r.version, state: r.state };
+    await loadReport();
+  } catch (err) { if (state.session?.id === sessionId) showReportFailure(err.message, retryReport); }
+}
 export async function loadReport() {
   const load = ++reportLoad;
   const sessionId = state.session.id;
@@ -37,7 +48,7 @@ export async function loadReport() {
       const r = await api(`/sessions/${sessionId}/report`);
       if (load !== reportLoad || state.session?.id !== sessionId) return;
       if (r.status === 'ready') { state.session.state = 'completed'; state.lastReport = r; go('feedback'); renderReport(r); return; }
-      if (r.status === 'failed') return showReportFailure(r.detail || '결과를 만들지 못했습니다.');
+      if (r.status === 'failed') return showReportFailure(r.detail || '결과를 만들지 못했습니다.', retryReport);
     } catch (err) { if (load === reportLoad && state.session?.id === sessionId) return showReportFailure(err.message); return; }
     await sleep(1200);
   }

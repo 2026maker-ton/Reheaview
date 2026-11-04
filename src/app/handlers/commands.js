@@ -61,7 +61,15 @@ export function createCommandHandlers(d) {
       store.commands.set(key, { request_hash: hash, response });
       return { status: 202, body: response };
     };
-    if (type === 'session.finish' && s.state === 'completed') return accept({ command_id: commandId, state: 'completed', version: s.version, report_status: store.evaluations.get(s.id)?.status || 'pending' });
+    if (type === 'session.finish' && s.state === 'completed') {
+      const reportStatus = store.evaluations.get(s.id)?.status;
+      if (payload.retry_report === true && reportStatus !== 'ready') {
+        const limited = checkRate(owner, 'turns');
+        if (limited) return limited;
+        return finishSessionAsync(owner, s, accept, commandId, true);
+      }
+      return accept({ command_id: commandId, state: 'completed', version: s.version, report_status: reportStatus || 'pending' });
+    }
     if (s.finish_requested && type !== 'session.finish') return err('conflict', '면접 종료를 처리하고 있습니다.', 409);
 
     if (type === 'session.start') {
@@ -497,16 +505,16 @@ export function createCommandHandlers(d) {
     return finishSessionAsync(owner, s, accept, commandId);
   }
 
-  async function finishSessionAsync(owner, s, accept, commandId) {
-    if (s.state === 'completed') return err('conflict', '이미 완료된 세션입니다.', 409);
-    if (!canSessionTransition(s.state, 'completing')) return err('conflict', '종료할 수 없는 상태입니다.', 409);
+  async function finishSessionAsync(owner, s, accept, commandId, retryReport = false) {
+    if (s.state === 'completed' && !retryReport) return err('conflict', '이미 완료된 세션입니다.', 409);
+    if (!retryReport && !canSessionTransition(s.state, 'completing')) return err('conflict', '종료할 수 없는 상태입니다.', 409);
     // 토론 세션은 사용자 발언 기회 미달 시 협업 차원을 보류하고 안내를 보고서에 포함한다
     const it0 = s.interview_type || s.mode || 'general';
     if (it0 === 'discussion' && s.discussion && s.discussion.user_turns < 4) {
       store.pushEvent(s.id, 'session.snapshot', { note: 'discussion_user_turns_below_4' });
     }
     void it0;
-    store.updateSession(s, { state: 'completing', finish_requested: true, awaiting_followup: false, current_followup: null });
+    store.updateSession(s, { ...(retryReport ? {} : { state: 'completing' }), finish_requested: true, awaiting_followup: false, current_followup: null });
     const turns = store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user');
     const turnsWithText = [];
     let allSynthetic = turns.length > 0;
@@ -693,10 +701,17 @@ export function createCommandHandlers(d) {
       };
       store.evaluations.set(s.id, report);
     } catch (e) {
-      report = { status: 'failed', error_code: 'evaluation_failed', generated_at: now(), detail: '평가를 생성하지 못했습니다. 확정된 답변은 보존됩니다.', debug: String(e?.message || e).slice(0, 300) };
+      // 원문·공급자 오류 본문·키 대신 서버가 만든 단계와 사유만 공개한다.
+      const operation = e?.code === 'ai_unavailable' ? e.operation : null;
+      const reason = e?.code === 'ai_unavailable' ? e.reason : null;
+      const stage = ({ 'evaluation.observe': '답변 근거 관찰', 'evaluation.generate': '답변 분석', 'answer.review': '질문별 답변 검토', 'report.comment': '종합 코멘트 작성' })[operation];
+      const failureNote = ({ timeout: '응답 시간 초과', rate_limited: '공급자 요청 한도 초과', budget_cap: '분석 예산 한도 도달', invalid_output: '응답 검증 실패', consent_missing: '처리 동의 확인 필요', provider_error: '공급자 응답 오류' })[reason] || 'AI 이용 설정 확인 필요';
+      report = { status: 'failed', error_code: 'evaluation_failed', generated_at: now(), retryable: true,
+        failure: { operation, reason }, provider_trace: [...(s.provider_trace || [])],
+        detail: `평가를 생성하지 못했습니다.${stage ? ` ${stage}: ${failureNote}.` : ''} 확정된 답변은 보존됩니다. 분석을 다시 시도해 주세요.` };
       store.evaluations.set(s.id, report);
     }
-    store.updateSession(s, { state: 'completed', completed_at: now() });
+    store.updateSession(s, { state: 'completed', completed_at: s.completed_at || now() });
     store.pushEvent(s.id, 'session.completed', { report_ready: report.status === 'ready' });
     if (report.status === 'ready') store.pushEvent(s.id, 'report.ready', { evaluation_id: report.evaluation_id });
     const response = { command_id: commandId, state: 'completed', version: s.version, report_status: report.status };

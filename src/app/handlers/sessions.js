@@ -304,7 +304,7 @@ export function createSessionHandlers(d) {
     if (s.state === 'deleting' || s.state === 'deleted') return err('not_found', '세션을 찾을 수 없습니다.', 404);
     const r = store.evaluations.get(id);
     if (!r) return { status: 202, body: { status: 'pending', retry_at: new Date(Date.now() + 3000).toISOString() } };
-    if (r.status === 'failed') return { status: 202, body: { status: 'failed', detail: r.detail } };
+    if (r.status === 'failed') return { status: 202, body: { status: 'failed', detail: r.detail, retryable: true, failure: r.failure || null } };
     return { status: 200, body: r };
   }
 

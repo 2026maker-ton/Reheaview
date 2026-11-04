@@ -29,6 +29,8 @@ const fallbackText = (reason) => ({
   kill_switch: 'AI가 꺼져 있어 브라우저 음성으로 읽습니다.',
   budget_cap: '음성 사용 한도에 도달해 브라우저 음성으로 읽습니다.',
   rate_limited: '음성 요청이 많아 브라우저 음성으로 읽습니다.',
+  busy: '이전 답변 처리가 지연되어 브라우저 음성으로 읽습니다.',
+  timeout: '음성 준비 시간이 초과되어 브라우저 음성으로 읽습니다.',
   disabled: '브라우저 합성 음성',
 })[reason] || '서버 음성을 사용할 수 없어 브라우저 합성 음성으로 읽습니다.';
 const status = (text) => { const el = document.querySelector('#ttsStatus'); if (el) el.textContent = text; };
@@ -86,12 +88,14 @@ export async function speakInterviewer(text, target) {
             return;
           } finally { audio.pause(); audio.onended = audio.onerror = null; URL.revokeObjectURL(url); }
         }
-        fallbackNote = fallbackText(res.headers.get('x-tts-reason') || (res.status === 429 ? 'rate_limited' : res.status === 401 ? 'consent_missing' : 'provider_error'));
+        const errorBody = !res.ok ? await res.json().catch(() => null) : null;
+        fallbackNote = fallbackText(res.headers.get('x-tts-reason') || (errorBody?.error?.code === 'busy' ? 'busy' : res.status === 429 ? 'rate_limited' : res.status === 401 ? 'consent_missing' : 'provider_error'));
       } finally { clearTimeout(timeout); }
     }
   } catch {
     // stopSpeech 이후에는 늦게 온 응답·재생 오류로 브라우저 낭독을 재개하지 않는다.
     if (pending !== current) return;
+    if (current.controller.signal.aborted) fallbackNote = fallbackText('timeout');
   }
   if (pending !== current) return;
   status(fallbackNote);

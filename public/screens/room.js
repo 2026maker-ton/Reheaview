@@ -181,9 +181,11 @@ async function submit(cutOff) {
   $('#interviewerLine').textContent = FIXED.ack;
   const said = speak(FIXED.ack);
   try {
-    const r = await api(`/sessions/${state.session.id}/commands`, { method: 'POST', idempotent: true, body: { command_id: uuid(), expected_version: state.session.version, type: 'turn.text', payload: { text, cut_off: cutOff, ...(voice_metrics ? { voice_metrics } : {}) } } });
-    if (room !== current || room.done) return;
+    // Vercel은 같은 계정의 TTS와 답변 쓰기를 직렬화한다. 낭독 요청을 먼저 마쳐
+    // 긴 답변 분석이 TTS를 15초 잠금 대기/20초 클라이언트 타임아웃에 빠뜨리지 않게 한다.
     await said;
+    if (room !== current || room.done) return;
+    const r = await api(`/sessions/${state.session.id}/commands`, { method: 'POST', idempotent: true, body: { command_id: uuid(), expected_version: state.session.version, type: 'turn.text', payload: { text, cut_off: cutOff, ...(voice_metrics ? { voice_metrics } : {}) } } });
     if (room !== current || room.done) return;
     if (r.version) state.session.version = r.version;
     // 블라인드 사전 차단: 서버가 이 답변을 AI로 보내지 않았다. 안내를 보여 주고 같은 질문으로 다시 답하게 한다.
