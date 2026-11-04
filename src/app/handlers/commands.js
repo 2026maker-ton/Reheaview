@@ -640,12 +640,13 @@ export function createCommandHandlers(d) {
         pushTrace(s, reviewRes.trace);
         if (['live', 'fallback'].includes(reviewRes.trace.mode)) s.llm_calls += 1;
         const reviewed = reviewRes.live ? validateAnswerReview(reviewRes.value, reviewIds) : null;
+        const reviewName = ({ claude: 'Claude', gemini: 'Gemini' })[reviewRes.trace.provider] || 'AI';
         if (reviewed) {
           const byId = new Map(reviewed.turns.map((t) => [t.turn_id, t]));
           transcript = transcript.map((t) => {
             const r = byId.get(t.turn_id);
             if (!r) return t;
-            return { ...t, turn_score: { relevance: r.relevance, specificity: r.specificity, reasoning: r.reasoning, source: 'llm' }, comment: { good: r.good || null, fix: r.fix || null, basis: 'Gemini가 이 질문, 학생부 근거, 이 답변을 읽고 쓴 문장입니다. 검증 전 참고이며 합격 판단이 아닙니다.', weakest: null, strongest: null } };
+            return { ...t, turn_score: { relevance: r.relevance, specificity: r.specificity, reasoning: r.reasoning, source: 'llm' }, comment: { good: r.good || null, fix: r.fix || null, basis: `${reviewName}가 이 질문, 학생부 근거, 이 답변을 읽고 쓴 문장입니다. 검증 전 참고이며 합격 판단이 아닙니다.`, weakest: null, strongest: null } };
           });
         }
         const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score, evidence_ids: (t.evidence || []).map((e) => e.id).filter(Boolean), competency_ids: t.competency_ids || [] }));
@@ -676,7 +677,7 @@ export function createCommandHandlers(d) {
         return { format: 'general', transcript, axes, ai_comments,
           // 블라인드 안전 결과(설계서 §10.5-5): 민감 원문은 싣지 않고 종류·처리 결과만.
           blind_safety: { filter_version: FILTER_VERSION, blocked_count: events.length, events: events.map((e) => ({ level: e.level, labels: e.labels, action: e.action, at: e.at })), masked_answers: transcript.filter((t) => t.risk?.level && t.risk.level !== 'none').length, note: '대입 블라인드 면접 기준(성명·수험번호·출신 고교·부모 및 친인척의 직업 등 사회적 지위)에 해당하는 표현은 AI로 보내기 전에 막았고, 결과 화면에는 원문을 싣지 않습니다. 대학별 공식 규정이 확인되지 않아 Reheaview의 보수적 기본 정책을 적용했습니다.' },
-          personas: { ids: s.persona_ids || [], names: (s.persona_ids || []).map(personaName), notice: '가상의 면접관 관점입니다. 실제 대학의 면접관·교수·입학사정관이 아니며 평가 기준·합격 여부와 무관합니다.' }, competency_fit, score_label: reviewed ? 'Gemini 참고 점수 · 검증 전' : '규칙 참고 점수 · 검증 전', fit_label: '질문과 연결된 역량의 답변 점수 · 검증 전' };
+          personas: { ids: s.persona_ids || [], names: (s.persona_ids || []).map(personaName), notice: '가상의 면접관 관점입니다. 실제 대학의 면접관·교수·입학사정관이 아니며 평가 기준·합격 여부와 무관합니다.' }, competency_fit, score_label: reviewed ? `${reviewName} 참고 점수 · 검증 전` : '규칙 참고 점수 · 검증 전', fit_label: '질문과 연결된 역량의 답변 점수 · 검증 전' };
       };
       const generalPart = general ? await buildGeneralPart() : null;
       report = {

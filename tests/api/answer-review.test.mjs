@@ -1,7 +1,7 @@
 // 질문별 점수·잘한 점·고치면 좋은 점: Gemini가 질문·학생부·답변을 읽고 쓰고, 실데이터는 REAL_DATA_ACK+동의 없으면 나가지 않는다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { withProviders, rawReply, okReply } from '../helpers/provider-stub.mjs';
+import { withProviders, rawReply, okReply, statusReply, FAKE_KEY, STUB_BASE } from '../helpers/provider-stub.mjs';
 import { createStore } from '../../src/store/memory.js';
 import { validateAnswerReview } from '../../src/domain/answer-review.js';
 
@@ -12,7 +12,8 @@ const isReview = (c) => JSON.stringify(c.body).includes('각 답변의 점수와
 
 function reviewReply(c) {
   const ids = [...JSON.stringify(c.body).matchAll(/turn_id: ([A-Za-z0-9-]+)/g)].map((m) => m[1]);
-  return rawReply(JSON.stringify({ turns: ids.map((turn_id) => ({ turn_id, relevance: 1, specificity: 2, reasoning: 2, good: '산책 집단을 직접 기록한 점을 먼저 말했습니다.', fix: FIX })) }));
+  const text = JSON.stringify({ turns: ids.map((turn_id) => ({ turn_id, relevance: 1, specificity: 2, reasoning: 2, good: '산책 집단을 직접 기록한 점을 먼저 말했습니다.', fix: FIX })) });
+  return c.url.includes('/claude') ? new Response(JSON.stringify({ content: [{ type: 'text', text }] })) : rawReply(text);
 }
 const stub = (c) => (isReview(c) ? reviewReply(c) : okReply());
 
@@ -48,6 +49,41 @@ test('answer.review: consented real data is scored from the answer text, not a s
     assert.equal(row.turn_score.source, 'llm');
     assert.equal(row.comment.fix, FIX);
     assert.match(row.comment.good, /산책/);
+    assert.match(row.comment.basis, /^Gemini가/);
+    const linked = rep.competency_fit[0];
+    assert.ok(linked.answers > 0 && !ANSWER.includes('탐구'));
+    const axis = rep.axes.axes.find((a) => a.id === 'talent_link');
+    assert.equal(axis.observed, true, 'question-assigned competency reaches both chart and radar without keyword repetition');
+    assert.equal(axis.n, linked.answers);
+    assert.equal(axis.level, linked.avg_score);
+  });
+});
+
+const CLAUDE_REVIEW = {
+  CLAUDE_API_KEY: FAKE_KEY, CLAUDE_BASE_URL: `${STUB_BASE}/claude`, CLAUDE_MODEL: 'stub-haiku', CLAUDE_LIVE_ACK: 'true', CLAUDE_REAL_DATA_ACK: 'true',
+  ROUTE_CLAIMS_EXTRACT: 'mock', ROUTE_SCHOOL_ANALYZE: 'mock', ROUTE_QUESTIONS_DESIGN: 'mock', ROUTE_QUESTIONS_WRITE: 'mock',
+  ROUTE_DIALOGUE_NEXT: 'mock', ROUTE_EVALUATION_OBSERVE: 'mock', ROUTE_EVALUATION_GENERATE: 'mock', ROUTE_REPORT_COMMENT: 'mock',
+};
+
+test('answer.review: Claude review is labelled from its own trace even when the overall evaluator is rule-based', async () => {
+  const store = createStore({});
+  await withProviders({ env: CLAUDE_REVIEW, overrides: { store, syntheticTraffic: false }, respond: stub }, async ({ g }) => {
+    const rep = await interview(g, store);
+    assert.equal(rep.status, 'ready');
+    assert.equal(rep.evaluator.kind, 'rule_based');
+    assert.equal(rep.score_label, 'Claude 참고 점수 · 검증 전');
+    assert.ok(rep.transcript.every((t) => t.turn_score.source === 'llm' && t.comment.basis.startsWith('Claude가')));
+    assert.ok(rep.provider_trace.some((t) => t.operation === 'answer.review' && t.provider === 'claude' && t.mode === 'live'));
+  });
+});
+
+test('answer.review: failed Claude review in non-strict mode keeps rule labels and never claims Claude wrote the comments', async () => {
+  const store = createStore({});
+  await withProviders({ env: CLAUDE_REVIEW, overrides: { store, syntheticTraffic: false }, respond: () => statusReply(429) }, async ({ g }) => {
+    const rep = await interview(g, store);
+    assert.equal(rep.status, 'ready');
+    assert.equal(rep.score_label, '규칙 참고 점수 · 검증 전');
+    assert.ok(rep.transcript.every((t) => t.turn_score.source === 'rule' && !/Claude가|Gemini가/.test(t.comment.basis)));
   });
 });
 

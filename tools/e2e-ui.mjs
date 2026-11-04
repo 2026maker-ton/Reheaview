@@ -513,6 +513,10 @@ async function main() {
     await acc.locator('summary').click();
     const accText = await acc.innerText();
     check(await acc.evaluate((e) => e.open) && accText.includes('규칙 기반 문구') && accText.includes('판단 근거'), '아코디언 펼침: 한줄평(Mock은 규칙 문구 표기)과 판단 근거');
+    const fitAcc = page.locator('.report-charts figure.chart:has(.hbar) details.ai-acc');
+    await fitAcc.locator('summary').click();
+    check((await fitAcc.innerText()).includes('해당 역량을 묻는 질문'), '역량 차트 근거는 질문 역량 연결과 단어 일치를 함께 설명');
+    await fitAcc.locator('summary').click();
     const jump = page.locator('.report-charts .ai-jump');
     check(await jump.count() === 1 && await page.locator('.report-charts .ai-jump').evaluate((e) => e.tagName === 'BUTTON'), '답변별 참고 점수: 열리지 않는 점프 버튼');
     await jump.click();

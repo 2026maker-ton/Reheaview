@@ -35,7 +35,7 @@ const hasScore = (t) => t.turn_score && Number.isFinite(t.turn_score.relevance);
 // transcript: generalTranscript의 항목(답변은 이미 위험 표현을 가린 텍스트). institution: 승인된 기관 프로필(없으면 null).
 export function buildAxes({ transcript = [], competencies = [], institution = null }) {
   const turns = transcript.filter(hasScore);
-  const fitTurns = turns.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score, evidence_ids: (t.evidence || []).map((e) => e.id).filter(Boolean) }));
+  const fitTurns = turns.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score, evidence_ids: (t.evidence || []).map((e) => e.id).filter(Boolean), competency_ids: t.competency_ids || [] }));
   const out = {};
   const put = (id, { level = null, n = 0, basis, reason = null, quote = null }) => {
     const def = AXES.find((a) => a.id === id);

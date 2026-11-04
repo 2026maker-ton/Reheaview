@@ -165,6 +165,8 @@
 
 ### 2.6 평가와 보고서
 
+**현재 구현 정정(2026-11-05, P4·P5·P1-9):** 관찰(`evaluation.observe`)은 Claude이며 채점(`evaluation.generate`)·질문별 재검토(`answer.review`)·한줄평(`report.comment`)은 명시적 operation 라우트가 우선이고, 미지정 시 Claude 키가 있으면 Claude, 없으면 Gemini다. 배포 파일의 Claude 모델 설정은 Haiku이며 아래 Sonnet→Gemini 고정 배치는 2026-11-01 이력이다. 종료 후 검증된 `answer.review` 점수가 보고서의 질문별 점수·역량 차트·6축 집계 입력을 대체한다. 재검토 점수·코멘트는 해당 호출의 실제 공급자로 표시하고, 규칙 결과는 규칙으로 표시한다. 기본 Node/Vercel 실행은 AI 필수 모드이므로 AI가 켜져 있을 때 게이트·호출·출력 검증 실패를 규칙 성공으로 대체하지 않고 실패·재분석을 안내한다. AI 끔 또는 비필수 모드에서는 기존 규칙 경로를 유지한다. 차트와 레이더 모두 질문의 `competency_ids`·근거 ID 또는 답변의 역량 이름으로 연결한 답변을 사용한다. 근거 없는 축의 미관찰 1 표시(§7.7)와 4차원 평가의 `insufficient_evidence`는 유지한다. 사람 평가로 검증된 채점은 아니다. 상세: `docs/decisions/2026-11-05-report-consistency.md`.
+
 평가는 지원자의 인격이나 합격 가능성이 아닌 **관찰된 답변**을 대상으로 한다.
 
 초기 루브릭:
@@ -298,6 +300,8 @@
 모든 참조는 소유권 검증, 버전 정합, 원문 역추적을 통과해야 한다.
 
 ### 4.4 AI 호출 구조 (operation별, 현재 vs 목표)
+
+**현재 라우팅 정정(2026-11-05):** 아래 2026-11-01 고정 공급자 설명은 이력이다. 관찰은 기본 Claude, 채점·답변 재검토·한줄평은 명시적 라우트 우선/Claude 키 존재 시 Claude 기본/Gemini 기본 대체 설정이며, 모델은 서버 구성으로 선택한다(§2.6). 이는 호출 실패 때 공급자를 바꾸는 자동 승격이 아니다. 기본 실행의 strict AI 실패는 보고서 실패로 표시하고 명시적으로 재분석한다. 역량 차트와 6축 인재상 적합성은 동일한 질문 역량 ID를 전달받는다.
 
 **현재 operation 배치(2026-11-01):** `claims.extract`·`questions.design`(구조)·`evaluation.observe`(관찰, level 없음) = Claude Sonnet, `evaluation.generate`(채점, 관찰 안에서 level만) = Gemini Flash Lite, `school.analyze`·`questions.write` = Claude Haiku, `school.search`·`dialogue.next`(합성·샘플 답변만, 실제 답변은 규칙)·`report.comment`(보고서 한줄평 2문장, 블라인드 가림 답변만 전송) = Gemini, `speech.transcribe` = Groq. `trends.decide`는 현재 호출 경로가 없다. 분업 평가는 관찰·채점 한쪽 실패 시 규칙 기반으로 폴백한다. 아래 표는 이전 구성(Gemini 중심)이다.
 
