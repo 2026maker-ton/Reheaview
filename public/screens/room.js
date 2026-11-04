@@ -185,6 +185,13 @@ async function submit(cutOff) {
     // 긴 답변 분석이 TTS를 15초 잠금 대기/20초 클라이언트 타임아웃에 빠뜨리지 않게 한다.
     await said;
     if (room !== current || room.done) return;
+    // 마지막 답변 요청은 서버에서 최종 평가까지 수행하므로 오래 걸릴 수 있다.
+    // 완료로 단정하지 않고 처리 중 화면을 먼저 보인다. 거절/오류는 아래에서 복구한다.
+    const finalAnswer = room.stage === 'closing';
+    if (finalAnswer) {
+      state.session.state = 'completing';
+      showReportProcessing();
+    }
     const r = await api(`/sessions/${state.session.id}/commands`, { method: 'POST', idempotent: true, body: { command_id: uuid(), expected_version: state.session.version, type: 'turn.text', payload: { text, cut_off: cutOff, ...(voice_metrics ? { voice_metrics } : {}) } } });
     if (room !== current || room.done) return;
     if (r.version) state.session.version = r.version;
@@ -197,6 +204,7 @@ async function submit(cutOff) {
       return beginAnswer();
     }
     if (r.state === 'completed' || r.action === 'finish') return endInterview(r.closing || FIXED.closing);
+    if (finalAnswer) { state.session.state = r.state || 'active'; go('room'); }
     if (r.action === 'ask_followup') return ask(r.utterance, '', room.stage);
     return ask(r.question?.text || r.utterance, r.bridge || '', r.question?.stage);
   } catch (err) {

@@ -118,4 +118,56 @@ export async function verifyRoomCompletion(page, check) {
   releaseFinish();
   await page.waitForSelector('.report-overview');
   check(finishCount === 1 && page.url().endsWith('#/feedback'), '종료 요청 1회·결과 화면 유지');
+
+  // 텍스트 마지막 답변: AI 평가 응답이 지연되어도 종료 화면으로 전환한다.
+  // 서버 응답 전에는 completed로 표시하거나 보고서를 조회하지 않는다.
+  let releaseLast; let lastBody; let reportReads = 0; let finalResult = 'ready';
+  await page.route('**/api/v1/sessions/text-final-check/**', async (route) => {
+    if (route.request().url().endsWith('/tts')) return route.fulfill({ status: 204 });
+    if (route.request().url().endsWith('/commands')) {
+      lastBody = route.request().postDataJSON();
+      await new Promise((r) => { releaseLast = r; });
+      if (finalResult === 'error') return route.fulfill({ status: 503, json: { error: { message: '분석 요청 지연 시험' } } });
+      if (finalResult === 'blind') return route.fulfill({ json: { state: 'active', version: 3, action: 'blind_blocked', message: '블라인드 표현을 빼고 다시 답해 주세요.' } });
+      return route.fulfill({ json: { state: 'completed', version: 3, action: 'finish' } });
+    }
+    reportReads++;
+    return route.fulfill({ json: { status: 'ready', session_id: 'text-final-check', evaluator: { kind: 'rule_based' }, transcript: [] } });
+  });
+  const startLast = () => page.evaluate(async () => {
+    const { state } = await import('/core/state.js'); const { enterRoom } = await import('/screens/room.js');
+    state.session = { id: 'text-final-check', version: 2, state: 'active' };
+    state.ttsVoice = 'browser';
+    enterRoom({ session: { input_mode: 'text', answer_seconds: 60 }, started: { question: { text: '마지막으로 하고 싶은 말이 있나요?', stage: 'closing' } } });
+  });
+  const lastAnswer = '입학 후에도 직접 탐구한 과정을 기록하고 동료와 비교하겠습니다.';
+  const submitLast = async () => {
+    releaseLast = null; lastBody = null;
+    await startLast(); await page.clock.runFor(50);
+    await page.fill('#answerText', lastAnswer); await page.click('#answerBtn');
+    await page.waitForURL(/#\/feedback/);
+    await page.clock.runFor(50); // hashchange의 화면 렌더까지 진행한다.
+    await page.waitForSelector('#screen-feedback:not([hidden]) .processing-card[aria-busy=true]');
+    for (let i = 0; i < 100 && !releaseLast; i++) await new Promise((r) => setTimeout(r, 10));
+    if (!releaseLast) throw new Error('마지막 답변 요청 없음');
+  };
+  await submitLast();
+  check(await page.locator('.processing-card[aria-busy=true]').isVisible(), '텍스트 마지막 답변: 평가 응답 전 분석 화면 자동 전환');
+  check((await page.evaluate(async () => (await import('/core/state.js')).state.session.state)) === 'completing' && reportReads === 0, '마지막 답변 수락 전에는 완료·보고서 성공으로 표시하지 않음');
+  check(lastBody.type === 'turn.text' && lastBody.payload.text === lastAnswer, '최종 답변 본문은 종료 대신 정상 제출');
+  releaseLast();
+  await page.waitForSelector('.report-overview');
+  check(reportReads === 1, '평가 완료 응답 후 보고서 조회·결과 표시');
+
+  finalResult = 'error';
+  await submitLast(); releaseLast();
+  await page.waitForURL(/#\/room/);
+  check(await page.locator('#textAnswer').isVisible() && await page.inputValue('#answerText') === lastAnswer && (await page.locator('#roomError').innerText()).includes('분석 요청 지연 시험'), '텍스트 마지막 답변 오류: 면접실과 입력 답변 복구');
+
+  finalResult = 'blind';
+  await submitLast(); releaseLast();
+  await page.waitForSelector('#confirmDialog[open]');
+  check(page.url().endsWith('#/room') && reportReads === 1, '마지막 답변 블라인드 거절: 결과 대신 같은 질문으로 복구');
+  await page.click('#confirmOk');
+  check((await page.locator('#roomTitle').innerText()).includes('마지막으로'), '마지막 질문 재답변 유지');
 }

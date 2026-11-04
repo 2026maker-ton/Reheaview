@@ -572,7 +572,7 @@ async function main() {
   } finally {
     check(!pageErrors.length, '페이지 오류 없음', pageErrors.join(' | '));
     check(!consoleErrors.filter((m) => !/Failed to load resource/.test(m)).length, '콘솔 오류 없음', consoleErrors.join(' | '));
-    const unexpected = badResponses.filter((r) => !/\/auth\/signup|^401 POST .*\/ai-switch/.test(r)); // 가입 중복 확인·틀린 스위치 비밀번호는 의도된 거절
+    const unexpected = badResponses.filter((r) => !/\/auth\/signup|^401 POST .*\/ai-switch|^503 POST .*\/sessions\/text-final-check\/commands$/.test(r)); // 가입·스위치 거절 및 합성 최종 답변의 의도된 503
     check(!unexpected.length, '예상하지 않은 4xx/5xx 없음', unexpected.join(' | '));
     await browser.close();
     app.server.close();
